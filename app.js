@@ -15,14 +15,16 @@ const num = v => {
   const t = v.trim().replace(',', '.');
   return /^[+-]?\d+(\.\d+)?$/.test(t) ? parseFloat(t) : null;
 };
+const str = v => v == null ? '' : String(v);
+const trim = v => String(v == null ? '' : v).trim();
 const toMin = t => {
   if (typeof t !== 'string') return null;
   const m = /^(\d{1,2}):(\d{2})/.exec(t.trim());
   return m ? (+m[1]) * 60 + (+m[2]) : null;
 };
 const isTime = t => typeof t === 'string' && /^([01]?\d|2[0-3]):[0-5]\d$/.test(t.trim());
-const normTime = t => { const m = toMin(t); return m == null ? '' : fmtClock(m); };
 const fmtClock = m => { m = ((Math.round(m) % 1440) + 1440) % 1440; return pad(Math.floor(m / 60)) + ':' + pad(m % 60); };
+const normTime = t => { const m = toMin(t); return m == null ? '' : fmtClock(m); };
 const fmtDur = min => {
   if (min == null || !Number.isFinite(min)) return '';
   const t = Math.max(0, Math.round(min));
@@ -47,6 +49,7 @@ const lsGet = k => { try { return localStorage.getItem(k); } catch (e) { return 
 const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* egal */ } };
 const clone = o => JSON.parse(JSON.stringify(o));
 const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+const uniq = arr => Array.from(new Set(arr.filter(Boolean).map(String)));
 const uuid = () => {
   if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
   const b = crypto.getRandomValues(new Uint8Array(16));
@@ -55,6 +58,18 @@ const uuid = () => {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 };
 const daysSince = datum => { const d = parseDate(datum); if (!d) return 0; const t = new Date(); t.setHours(0, 0, 0, 0); return Math.round((t - d) / 86400000); };
+function getPath(obj, path) {
+  return path.split('.').reduce((o, k) => (o == null ? o : o[k]), obj);
+}
+function setPath(obj, path, val) {
+  const parts = path.split('.');
+  let o = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    if (o[parts[i]] == null) o[parts[i]] = {};
+    o = o[parts[i]];
+  }
+  o[parts[parts.length - 1]] = val;
+}
 
 function fmtAny(v) {
   if (v == null) return '';
@@ -66,11 +81,18 @@ function fmtAny(v) {
 }
 
 /* ---------- Konstanten ---------- */
+const SCHEMA_VERSION = 4;
 const TYP = { fang: 'Fang', fehlbiss: 'Fehlbiss', aussteiger: 'Aussteiger', nachlaeufer: 'Nachläufer' };
 const BISS = ['fang', 'fehlbiss', 'aussteiger'];
 const ZIELFISCHE = ['Barsch', 'Hecht', 'Zander', 'Meerforelle', 'Bachforelle'];
 const ARTEN = ['Barsch', 'Hecht', 'Zander', 'Meerforelle', 'Bachforelle', 'Rotauge', 'Brasse'];
-const KOEDERTYP = ['Gummifisch', 'Wobbler', 'Jerkbait', 'Spinner', 'Blinker', 'Spinnerbait', 'Dropshot', 'Creature', 'Sonstiges'];
+const KOEDERTYP = ['Gummifisch', 'Swimbait', 'Wobbler', 'Jerkbait', 'Glidebait', 'Spinner', 'Blinker', 'Spinnerbait', 'Dropshot', 'Creature'];
+const FUEHRUNG = ['monoton eingekurbelt', 'Faulenzen', 'Jiggen', 'Twitchen', 'Stop and Go'];
+const SCHICHT = ['grundnah', 'Mittelwasser', 'oberflächennah'];
+const MONTAGE = ['Jigkopf', 'Swimbait-Haken mit Bauchblei', 'Offset-/Texas-Rig', 'Cheburashka', 'Dropshot', 'Carolina-Rig', 'Drillinge am Köder (Hardbait)'];
+const AUSTRITT = ['vorderes Drittel', 'Körpermitte', 'hinteres Drittel'];
+const SPITZE = ['frei', 'verdeckt'];
+const STINGERPOS = ['hinteres Drittel Bauch', 'hinteres Drittel Rücken', 'Schwanzwurzel'];
 const GWTYP = ['Talsperre', 'Hafenbecken', 'Fluss', 'Bach', 'See', 'Kanal'];
 const VIEWS = ['sessions', 'gewaesser', 'uebertragen', 'daten', 'live'];
 const KAT = { koeder: 'Köder', technik: 'Technik', montage: 'Montage', spot: 'Spot', zeitfenster: 'Zeitfenster', allgemein: 'Allgemein' };
@@ -79,15 +101,19 @@ const BED = { saison: 'Jahreszeit', monate: 'Monate', wassertemp: 'Wassertempera
 const EXPORT_INTRO = 'Übernimm diese Sessions aus der Fangbuch-App ins Fangbuch:';
 const DEFAULT_SUN = { lat: 51.2, lon: 10.4 };
 const STALE_DAYS = 7;
+const EIGEN = '__eigen';
+const NEU = '__neu';
+const BILD_MAX = 1280;
+const defaultSettings = () => ({ gps: false, sunPos: null, typen: [], montagen: [], setups: [], lastSetup: {} });
 
 /* ---------- Speicher (IndexedDB) ---------- */
 const DB_NAME = 'fangbuch-app';
-const STORES = { sessions: 'appId', gewaesser: 'slug', empfehlungen: 'id', meta: 'key' };
+const STORES = { sessions: 'appId', gewaesser: 'slug', empfehlungen: 'id', meta: 'key', bilder: 'id' };
 let idb = null;
 function openDb() {
   return new Promise((res, rej) => {
     if (!('indexedDB' in window)) { rej(new Error('kein IndexedDB')); return; }
-    const r = indexedDB.open(DB_NAME, 1);
+    const r = indexedDB.open(DB_NAME, 2);
     r.onupgradeneeded = () => {
       const d = r.result;
       Object.entries(STORES).forEach(([n, key]) => { if (!d.objectStoreNames.contains(n)) d.createObjectStore(n, { keyPath: key }); });
@@ -107,13 +133,16 @@ function tx(stores, mode, fn) {
     out = fn(t);
   });
 }
-function getAll(store) {
+function req(store, fn) {
   return new Promise((res, rej) => {
-    const r = idb.transaction(store).objectStore(store).getAll();
-    r.onsuccess = () => res(r.result || []);
+    const r = fn(idb.transaction(store).objectStore(store));
+    r.onsuccess = () => res(r.result);
     r.onerror = () => rej(r.error);
   });
 }
+const getAll = store => req(store, s => s.getAll()).then(x => x || []);
+const getKeys = store => req(store, s => s.getAllKeys()).then(x => x || []);
+const getOne = (store, key) => req(store, s => s.get(key));
 const put = (store, obj) => tx([store], 'readwrite', t => { t.objectStore(store).put(clone(obj)); });
 const del = (store, key) => tx([store], 'readwrite', t => { t.objectStore(store).delete(key); });
 const putMeta = (key, value) => put('meta', { key, value });
@@ -131,15 +160,18 @@ const saveSession = s => persist('sessions', s);
 const state = {
   ready: false, failed: false,
   sessions: [], gewaesser: [], gwMap: {}, empfehlungen: [],
-  settings: { gps: false, sunPos: null }, pending: null, lastBackup: null,
+  settings: defaultSettings(),
+  pending: null, lastBackup: null,
   view: 'sessions',
   f: { sOnlyOpen: false },
-  form: { gw: '', gwNeu: '', spot: '', ziel: 'Barsch', art: 'Ufer', koeder: '', koederTyp: '', wt: '', sicht: '', koederNeu: '', koederNeuTyp: '', note: '' },
-  live: null, lastEnded: null, fangEdit: null, endConfirm: false,
-  edit: null, open: null, delConfirm: false, tipsOpen: false,
-  exp: null, importMsg: null, importText: '', restore: null,
+  form: null,
+  live: null, lastEnded: null, evEdit: null, endConfirm: false,
+  edit: null, setupEdit: null, open: null, delConfirm: false, tipsOpen: false, openDet: new Set(),
+  exp: null, importMsg: null, importText: '', restore: null, listAdd: { typen: '', montagen: '' },
+  bildCache: new Map(),
   timer: null, wakeLock: null, swWaiting: null
 };
+const emptyForm = () => ({ gw: '', gwNeu: '', spot: '', spotNeu: '', ziel: 'Barsch', art: 'Ufer', setup: '', vorfach: '', wt: '', sicht: '', k0: kDraft(null), kNeu: kDraft(null), note: '', evd: null });
 
 let toastT;
 function toast(msg) {
@@ -169,8 +201,10 @@ const events = s => Array.isArray(s.ereignisse) ? s.ereignisse.filter(e => e && 
 const u = s => (s.umwelt && typeof s.umwelt === 'object') ? s.umwelt : {};
 const isLive = s => s.live === true && !s.ende;
 const isDone = s => !!s._uebertragenAm;
+const isNewGw = g => g._quelle === 'app' && !g._uebertragenAm;
 const openSessions = () => state.sessions.filter(s => !isDone(s) && !isLive(s));
-const openGw = () => state.gewaesser.filter(g => g._quelle === 'app' && !g._uebertragenAm);
+const openGw = () => state.gewaesser.filter(isNewGw);
+const spotGw = () => state.gewaesser.filter(g => !isNewGw(g) && (g._neueSpots || []).length);
 function statsOf(s) {
   const ev = events(s);
   const bisse = ev.filter(e => BISS.includes(e.typ)).length;
@@ -199,9 +233,24 @@ function gwName(s) { const g = state.gwMap[s.gewaesser]; return (g && g.name) ||
 function koederText(k) {
   if (!k || typeof k !== 'object') return fmtAny(k);
   const lab = k.label ? String(k.label) : '';
-  const det = [k.typ, k.modell, k.farbe].filter(Boolean).map(String).filter(p => !lab || !lab.toLowerCase().includes(p.toLowerCase())).join(', ');
+  const det = [k.typ, k.modell, k.farbe,
+    num(k.groesseCm) != null ? NF1.format(num(k.groesseCm)) + ' cm' : '',
+    num(k.gewichtG) != null ? NF1.format(num(k.gewichtG)) + ' g' : '']
+    .filter(Boolean).map(String).filter(p => !lab || !lab.toLowerCase().includes(p.toLowerCase())).join(', ');
   if (lab && det) return lab + ' (' + det + ')';
   return lab || det || '';
+}
+function montageText(m) {
+  if (!m || typeof m !== 'object') return '';
+  const st = [m.stingerArt, m.stingerPosition].filter(Boolean).join(', ');
+  return [m.art, num(m.bleiG) != null ? NF1.format(num(m.bleiG)) + ' g' : '', m.haken,
+    m.hakenAustritt ? 'Austritt ' + m.hakenAustritt : '', m.hakenspitze ? 'Spitze ' + m.hakenspitze : '',
+    m.stinger ? 'Stinger' + (st ? ' ' + st : '') : '', m.notiz].filter(Boolean).join(', ');
+}
+function koederExtra(k) {
+  return [k.fuehrung ? 'Führung: ' + k.fuehrung : '', k.schicht ? 'Schicht: ' + k.schicht : '',
+    num(k.jigkopfG) != null ? 'Jigkopf ' + NF1.format(num(k.jigkopfG)) + ' g' : '',
+    montageText(k.montage) ? 'Montage: ' + montageText(k.montage) : ''].filter(Boolean).join('; ');
 }
 function currentKoeder(s) {
   const k = Array.isArray(s.koeder) ? s.koeder : [];
@@ -213,10 +262,12 @@ function lenText(ev) {
   const L = num(ev.laengeCm);
   return L != null ? NF1.format(L) + ' cm' : '';
 }
-const uniq = arr => Array.from(new Set(arr.filter(Boolean).map(String)));
 function zielOptions(g) { return uniq(ZIELFISCHE.concat(g && Array.isArray(g.zielfische) ? g.zielfische : [])).concat('Andere'); }
 function artOptions(g) { return uniq(ARTEN.concat(g && Array.isArray(g.zielfische) ? g.zielfische : [], g && Array.isArray(g.fischarten) ? g.fischarten : [])).concat('Andere'); }
 function spotNames(g) { return g && Array.isArray(g.spots) ? g.spots.map(x => x && (typeof x === 'string' ? x : x.name)).filter(Boolean) : []; }
+const typList = () => uniq(KOEDERTYP.concat(state.settings.typen || []));
+const montageList = () => uniq(MONTAGE.concat(state.settings.montagen || []));
+const setupById = id => (state.settings.setups || []).find(x => x.id === id) || null;
 
 /* ---------- Sonnenzeiten (für die Dämmerung in der Zeitleiste) ---------- */
 function sunTimes(date, lat, lon) {
@@ -324,6 +375,283 @@ function timeline(s, opts = {}) {
   return h + '</div>';
 }
 
+/* ---------- Formular-Bausteine ---------- */
+// Formularfelder schreiben über data-r (Ziel) und data-b (Pfad) direkt in einen Entwurf.
+// data-r: f = state.form (Live), s = Setup-Entwurf, e = Entwurf im Bearbeiten-Formular.
+function rootOf(r) {
+  if (r === 'f') return state.form;
+  if (r === 's') return state.setupEdit && state.setupEdit.d;
+  return state.edit && state.edit.d;
+}
+const bind = (r, path) => `data-r="${r}" data-b="${path}"`;
+const inp = (r, path, v, attrs = '') => `${bind(r, path)} value="${esc(v)}"${attrs}`;
+function textFld(r, path, v, label, attrs = '') {
+  return `<label class="fld"><span>${label}</span><input ${inp(r, path, v, ' autocomplete="off"' + attrs)}></label>`;
+}
+function selFld(r, path, v, label, opts, { empty = 'offen', rerender = false } = {}) {
+  const list = opts.slice();
+  if (v && !list.includes(v)) list.unshift(v);
+  return `<label class="fld"><span>${label}</span><select ${bind(r, path)}${rerender ? ' data-rerender="1"' : ''}>${empty != null ? `<option value="">${empty}</option>` : ''}${list.map(o => `<option${o === v ? ' selected' : ''}>${esc(o)}</option>`).join('')}</select></label>`;
+}
+// Auswahl mit „Eigene Eingabe …“: Der Entwurf hält EIGEN im Feld und den Text in <feld>Eigen.
+function choiceFld(r, path, v, label, opts, eigenLabel, ph = '') {
+  const isE = v === EIGEN;
+  return `<label class="fld"><span>${label}</span><select ${bind(r, path)} data-rerender="1"><option value="">offen</option>${opts.map(o => `<option${o === v ? ' selected' : ''}>${esc(o)}</option>`).join('')}<option value="${EIGEN}"${isE ? ' selected' : ''}>${eigenLabel}</option></select></label>`
+    + (isE ? textFld(r, path + 'Eigen', getPath(rootOf(r), path + 'Eigen') || '', label + ', eigene Eingabe', ph ? ` placeholder="${esc(ph)}"` : '') : '');
+}
+function detailsBox(key, title, body, hint) {
+  const open = state.openDet.has(key);
+  return `<details class="sub" data-det="${esc(key)}"${open ? ' open' : ''}><summary>${title}${hint ? `<span class="smeta sumhint">${esc(hint)}</span>` : ''}</summary>${body}</details>`;
+}
+function eigenSplit(v, opts) { return v && !opts.includes(v) ? [EIGEN, v] : [v || '', '']; }
+function eigenValue(v, txt) { return v === EIGEN ? trim(txt) : trim(v); }
+
+/* ---------- Köder ---------- */
+function kDraft(k) {
+  k = k ? clone(k) : {};
+  const m = k.montage && typeof k.montage === 'object' ? k.montage : {};
+  const d = { zeit: k.zeit || '', label: k.label || '', modell: k.modell || '', farbe: k.farbe || '', groesseCm: str(k.groesseCm), gewichtG: str(k.gewichtG), schicht: k.schicht || '' };
+  [d.typ, d.typEigen] = eigenSplit(k.typ, typList());
+  [d.fuehrung, d.fuehrungEigen] = eigenSplit(k.fuehrung, FUEHRUNG);
+  d.montage = { bleiG: str(m.bleiG), haken: m.haken || '', hakenAustritt: m.hakenAustritt || '', hakenspitze: m.hakenspitze || '', stinger: !!m.stinger, stingerArt: m.stingerArt || '', notiz: m.notiz || '' };
+  [d.montage.art, d.montage.artEigen] = eigenSplit(m.art, montageList());
+  [d.montage.stingerPosition, d.montage.stingerPositionEigen] = eigenSplit(m.stingerPosition, STINGERPOS);
+  if (k.jigkopfG != null) d.jigkopfG = k.jigkopfG;
+  if (k._ts) d._ts = k._ts;
+  return d;
+}
+function addCustom(key, val) {
+  const list = key === 'typen' ? typList() : montageList();
+  if (!val || list.includes(val)) return;
+  state.settings[key] = uniq((state.settings[key] || []).concat(val));
+  saveSettings();
+}
+function kClean(d) {
+  const o = {};
+  if (isTime(d.zeit)) o.zeit = normTime(d.zeit);
+  const set = (k, v) => { if (v !== '' && v != null) o[k] = v; };
+  set('label', trim(d.label));
+  const typ = eigenValue(d.typ, d.typEigen);
+  if (d.typ === EIGEN) addCustom('typen', typ);
+  set('typ', typ);
+  set('modell', trim(d.modell));
+  set('farbe', trim(d.farbe));
+  set('groesseCm', num(d.groesseCm));
+  set('gewichtG', num(d.gewichtG));
+  if (d.jigkopfG != null) set('jigkopfG', num(d.jigkopfG));
+  set('fuehrung', eigenValue(d.fuehrung, d.fuehrungEigen));
+  set('schicht', trim(d.schicht));
+  const m = d.montage || {}, mo = {};
+  const mset = (k, v) => { if (v !== '' && v != null) mo[k] = v; };
+  const art = eigenValue(m.art, m.artEigen);
+  if (m.art === EIGEN) addCustom('montagen', art);
+  mset('art', art);
+  mset('bleiG', num(m.bleiG));
+  mset('haken', trim(m.haken));
+  mset('hakenAustritt', trim(m.hakenAustritt));
+  mset('hakenspitze', trim(m.hakenspitze));
+  if (m.stinger) {
+    mo.stinger = true;
+    mset('stingerArt', trim(m.stingerArt));
+    mset('stingerPosition', eigenValue(m.stingerPosition, m.stingerPositionEigen));
+  }
+  mset('notiz', trim(m.notiz));
+  if (Object.keys(mo).length) { if (!mo.stinger) mo.stinger = false; o.montage = mo; }
+  if (!o.label) o.label = o.modell || o.typ || '';
+  if (!o.label) delete o.label;
+  if (d._ts) o._ts = d._ts;
+  return o;
+}
+const kHasContent = k => !!(k.label || k.typ || k.modell);
+function knownLabels() {
+  const all = [];
+  state.sessions.forEach(s => (s.koeder || []).forEach(k => { if (k && k.label) all.push(k.label); }));
+  return uniq(all).sort((a, b) => a.localeCompare(b, 'de'));
+}
+function lastKoeder(label) {
+  const key = trim(label).toLowerCase();
+  if (!key) return null;
+  let best = null, bestKey = '';
+  state.sessions.forEach(s => (s.koeder || []).forEach(k => {
+    if (!k || trim(k.label).toLowerCase() !== key) return;
+    const sk = `${s.datum || ''} ${normTime(k.zeit) || s.beginn || ''}`;
+    if (!best || sk >= bestKey) { best = k; bestKey = sk; }
+  }));
+  return best;
+}
+// Füllt leere Felder eines Köder-Entwurfs mit den Angaben vom letzten Einsatz.
+function prefillKoeder(d) {
+  if (!d) return false;
+  const k = lastKoeder(d.label);
+  if (!k) return false;
+  const p = kDraft(k);
+  let changed = false;
+  [['typ', 'typEigen'], ['modell'], ['farbe'], ['groesseCm'], ['gewichtG']].forEach(([f, f2]) => {
+    if (!d[f] && p[f]) { d[f] = p[f]; if (f2) d[f2] = p[f2]; changed = true; }
+  });
+  const mEmpty = !kClean({ montage: d.montage }).montage;
+  const pHas = !!kClean({ montage: p.montage }).montage;
+  if (mEmpty && pHas) { d.montage = p.montage; changed = true; }
+  return changed;
+}
+function koederForm(r, path, d, { withLabel = true, labelTitle = 'Köder' } = {}) {
+  const m = d.montage || {};
+  const mp = path + '.montage';
+  const montageBody = choiceFld(r, mp + '.art', m.art, 'Montage', montageList(), 'Eigene Montage …', 'z. B. Ned-Rig')
+    + `<div class="grid2">${textFld(r, mp + '.bleiG', m.bleiG, 'Kopf- bzw. Bleigewicht in g', ' inputmode="decimal"')}${textFld(r, mp + '.haken', m.haken, 'Haken (Modell, Größe)', ' placeholder="z. B. 5/0"')}</div>`
+    + `<div class="grid2">${selFld(r, mp + '.hakenAustritt', m.hakenAustritt, 'Hakenaustritt', AUSTRITT)}${selFld(r, mp + '.hakenspitze', m.hakenspitze, 'Hakenspitze', SPITZE)}</div>`
+    + `<label class="check"><input type="checkbox" ${bind(r, mp + '.stinger')} data-rerender="1"${m.stinger ? ' checked' : ''}> Stinger</label>`
+    + (m.stinger ? textFld(r, mp + '.stingerArt', m.stingerArt, 'Stinger', ' placeholder="z. B. Drilling Gr. 4 an NiTi"')
+      + choiceFld(r, mp + '.stingerPosition', m.stingerPosition, 'Stinger-Position', STINGERPOS, 'Eigene Eingabe …') : '')
+    + textFld(r, mp + '.notiz', m.notiz, 'Notiz zur Montage');
+  const mHint = montageText(kClean({ montage: m }).montage);
+  return (withLabel ? `<label class="fld"><span>${labelTitle}</span><input ${inp(r, path + '.label', d.label, ' autocomplete="off" list="dl-klabels" data-prefill="1" placeholder="z. B. TT Shad 12 cm"')}></label>` : '')
+    + choiceFld(r, path + '.typ', d.typ, 'Ködertyp', typList(), 'Eigener Typ …')
+    + `<div class="grid2">${textFld(r, path + '.modell', d.modell, 'Modell')}${textFld(r, path + '.farbe', d.farbe, 'Farbe, Dekor')}</div>`
+    + `<div class="grid2">${textFld(r, path + '.groesseCm', d.groesseCm, 'Länge in cm', ' inputmode="decimal"')}${textFld(r, path + '.gewichtG', d.gewichtG, 'Gewicht in g (ohne Montage)', ' inputmode="decimal"')}</div>`
+    + `<div class="grid2"><div>${choiceFld(r, path + '.fuehrung', d.fuehrung, 'Führung', FUEHRUNG, 'Eigene Eingabe …')}</div>${selFld(r, path + '.schicht', d.schicht, 'Wasserschicht', SCHICHT)}</div>`
+    + detailsBox(r + ':' + mp, 'Montage', montageBody, mHint);
+}
+const labelsDatalist = () => `<datalist id="dl-klabels">${knownLabels().map(x => `<option value="${esc(x)}"></option>`).join('')}</datalist>`;
+
+/* ---------- Setups ---------- */
+function setupOptions(sel) {
+  const list = (state.settings.setups || []).filter(x => x.aktiv !== false || x.id === sel);
+  return `<option value="">Ohne Setup</option>` + list.map(x => `<option value="${esc(x.id)}"${x.id === sel ? ' selected' : ''}>${esc(x.name || x.id)}</option>`).join('');
+}
+function setupSnapshot(id, vorfach) {
+  const su = setupById(id);
+  const o = {};
+  if (su) {
+    o.setupId = su.id;
+    const kombo = [su.rute, su.rolle].map(trim).filter(Boolean).join(' + ');
+    if (kombo) o.kombo = kombo;
+    if (trim(su.hauptschnur)) o.hauptschnur = trim(su.hauptschnur);
+  }
+  if (trim(vorfach)) o.vorfach = trim(vorfach);
+  return Object.keys(o).length ? o : null;
+}
+
+/* ---------- Spots ---------- */
+function spotSelect(r, path, v, g, label, emptyLabel) {
+  const list = spotNames(g);
+  if (v && v !== NEU && !list.includes(v)) list.unshift(v);
+  return `<label class="fld"><span>${label}</span><select ${bind(r, path)} data-rerender="1"><option value="">${emptyLabel}</option>${list.map(o => `<option${o === v ? ' selected' : ''}>${esc(o)}</option>`).join('')}<option value="${NEU}"${v === NEU ? ' selected' : ''}>+ Neuer Spot</option></select></label>`
+    + (v === NEU ? textFld(r, path + 'Neu', getPath(rootOf(r), path + 'Neu') || '', 'Name des neuen Spots', ' placeholder="z. B. D Spundwand Ost"') : '');
+}
+async function addSpot(g, name) {
+  if (!g || !name || spotNames(g).includes(name)) return;
+  g.spots = (Array.isArray(g.spots) ? g.spots : []).concat({ name });
+  // Spots an Gewässern, die es im Fangbuch schon gibt, gehen beim Übertragen gesondert mit.
+  if (!isNewGw(g)) g._neueSpots = uniq((g._neueSpots || []).concat(name));
+  g.aktualisiert = new Date().toISOString();
+  await persist('gewaesser', g).catch(() => {});
+}
+async function resolveSpot(g, v, neu) {
+  if (v !== NEU) return trim(v);
+  const name = trim(neu);
+  if (name) await addSpot(g, name);
+  return name;
+}
+
+/* ---------- Position und Screenshots ---------- */
+function getPos(force) {
+  return new Promise(res => {
+    if ((!force && !state.settings.gps) || !navigator.geolocation) { res(null); return; }
+    navigator.geolocation.getCurrentPosition(
+      p => res({ lat: Math.round(p.coords.latitude * 1e5) / 1e5, lon: Math.round(p.coords.longitude * 1e5) / 1e5 }),
+      () => res(null),
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 30000 }
+    );
+  });
+}
+function attachPos(target, s) {
+  getPos(false).then(p => {
+    if (!p) return;
+    target.koordinaten = p;
+    if (state.sessions.includes(s)) saveSession(s);
+  });
+}
+function loadImage(file) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); res(img); };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('Bild')); };
+    img.src = url;
+  });
+}
+async function resizeImage(file) {
+  let src;
+  try { src = await createImageBitmap(file, { imageOrientation: 'from-image' }); }
+  catch (e) { src = await loadImage(file); }
+  const w = src.width, h = src.height;
+  const sc = Math.min(1, BILD_MAX / Math.max(w, h));
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.round(w * sc)); c.height = Math.max(1, Math.round(h * sc));
+  c.getContext('2d').drawImage(src, 0, 0, c.width, c.height);
+  if (src.close) src.close();
+  return c.toDataURL('image/jpeg', 0.7);
+}
+async function storeImage(file) {
+  const data = await resizeImage(file);
+  const id = uuid();
+  await put('bilder', { id, data, erstellt: new Date().toISOString() });
+  state.bildCache.set(id, data);
+  return id;
+}
+const bildId = ref => typeof ref === 'string' && ref.startsWith('bild:') ? ref.slice(5) : null;
+async function bildData(id) {
+  if (state.bildCache.has(id)) return state.bildCache.get(id);
+  const r = await getOne('bilder', id).catch(() => null);
+  const d = r && r.data;
+  if (d) state.bildCache.set(id, d);
+  return d || null;
+}
+function fillThumbs(root) {
+  $$('img[data-bild]', root || document).forEach(async img => {
+    if (img.getAttribute('src')) return;
+    const d = await bildData(img.dataset.bild);
+    if (d) img.src = d; else img.alt = 'Bild fehlt';
+  });
+}
+const thumb = id => `<button class="thumbbtn" type="button" data-act="bild-show" data-id="${esc(id)}" aria-label="Screenshot ansehen"><img class="thumb" data-bild="${esc(id)}" alt="Screenshot"></button>`;
+async function gcBilder() {
+  const refs = new Set();
+  const add = ev => { const id = ev && bildId(ev.bild); if (id) refs.add(id); };
+  state.sessions.forEach(s => events(s).forEach(add));
+  if (state.edit && state.edit.d && Array.isArray(state.edit.d.ereignisse)) state.edit.d.ereignisse.forEach(add);
+  if (state.form) add(state.form.evd);
+  try {
+    const dead = (await getKeys('bilder')).filter(k => !refs.has(k));
+    if (dead.length) await tx(['bilder'], 'readwrite', t => dead.forEach(k => t.objectStore('bilder').delete(k)));
+    dead.forEach(k => state.bildCache.delete(k));
+  } catch (e) { /* egal, nächster Versuch beim nächsten Start */ }
+}
+// Position und Bild landen im Entwurf und bei der Live-Session sofort auch im gespeicherten Ereignis.
+function evTargets(r, p) {
+  const out = [];
+  const d = getPath(rootOf(r), p);
+  if (d) out.push(d);
+  if (r === 'f' && p === 'evd' && state.live && state.evEdit != null && state.live.ereignisse[state.evEdit]) out.push(state.live.ereignisse[state.evEdit]);
+  return out;
+}
+function afterEvTargetChange(r) {
+  if (r === 'f' && state.live) touch(state.live);
+  renderView();
+}
+function evExtras(r, p, ev, g) {
+  const id = bildId(ev.bild);
+  const pos = ev.koordinaten && num(ev.koordinaten.lat) != null
+    ? `<span class="smeta">Position ${esc(ev.koordinaten.lat)}, ${esc(ev.koordinaten.lon)}</span> <button class="linkbtn" type="button" data-act="pos-del" data-r="${r}" data-p="${p}">entfernen</button>`
+    : `<button class="btn ghost small" type="button" data-act="pos" data-r="${r}" data-p="${p}">Position übernehmen</button>`;
+  const pic = id
+    ? `<div class="picrow">${thumb(id)}<button class="linkbtn" type="button" data-act="bild-del" data-r="${r}" data-p="${p}">Screenshot entfernen</button></div>`
+    : `<label class="btn ghost small filelabel">Screenshot anhängen<input type="file" accept="image/*" data-bild-r="${r}" data-bild-p="${p}"></label>`;
+  return `<div class="grid2"><div>${spotSelect(r, p + '.spot', ev.spot, g, 'Spot', 'ohne Spot')}</div>${textFld(r, p + '.tiefeM', ev.tiefeM, 'Wassertiefe in m', ' inputmode="decimal"')}</div>
+    <div class="row evtools">${pos}</div><div class="row evtools">${pic}</div>`;
+}
+
 /* ---------- Kopfbereich und Hinweise ---------- */
 function renderLede() {
   const el = $('#lede');
@@ -342,7 +670,7 @@ function renderLede() {
 function renderNav() {
   $$('.tab').forEach(b => b.setAttribute('aria-current', b.dataset.view === state.view ? 'page' : 'false'));
   $('.tab-live').classList.toggle('running', !!state.live);
-  const c = openSessions().length + openGw().length;
+  const c = openSessions().length + openGw().length + spotGw().length;
   $('#tab-count').textContent = c ? String(c) : '';
 }
 function staleSessions() { return openSessions().filter(s => daysSince(s.datum) > STALE_DAYS); }
@@ -365,7 +693,7 @@ function pendingCard() {
   const p = state.pending;
   if (!p) return '';
   return `<div class="note-card warn"><h2>Hat die Übertragung geklappt?</h2>
-    <p>Am ${esc(DF_TS.format(new Date(p.at)))} hast du ${plural(p.sessions.length, 'Session', 'Sessions')}${p.gewaesser.length ? ' und ' + plural(p.gewaesser.length, 'Gewässer', 'Gewässer') : ''} exportiert. Bestätige erst, wenn Claude sie im Projekt „Angeln“ ins Fangbuch übernommen hat.</p>
+    <p>Am ${esc(DF_TS.format(new Date(p.at)))} hast du ${plural(p.sessions.length, 'Session', 'Sessions')}${p.gewaesser.length ? ' und Angaben zu ' + plural(p.gewaesser.length, 'Gewässer', 'Gewässern') : ''} exportiert. Bestätige erst, wenn Claude sie im Projekt „Angeln“ ins Fangbuch übernommen hat.</p>
     <div class="row"><button class="btn" data-act="pending-yes">Ja, ist im Fangbuch</button><button class="btn ghost" data-act="pending-no">Nein, nochmal versuchen</button></div></div>`;
 }
 
@@ -447,7 +775,8 @@ function renderGewaesser() {
     const vs = state.empfehlungen.filter(e => e.gewaesser === g.slug && isActiveV(e)).length;
     const meta = [g.typ, g.lage, spotNames(g).length ? plural(spotNames(g).length, 'Spot', 'Spots') : '', vs ? plural(vs, 'offener Vorschlag', 'offene Vorschläge') : ''].filter(Boolean).join(', ');
     const line = st.n ? `${plural(st.n, 'Session', 'Sessions')} in der App, ${plural(st.f, 'Fang', 'Fänge')}` : 'Noch keine Session in der App';
-    const badge = g._quelle === 'app' && !g._uebertragenAm ? '<span class="badge open">neu, nicht übertragen</span>' : '';
+    const badge = isNewGw(g) ? '<span class="badge open">neu, nicht übertragen</span>'
+      : (g._neueSpots || []).length ? `<span class="badge open">${plural(g._neueSpots.length, 'neuer Spot', 'neue Spots')}</span>` : '';
     h += `<div class="gwrow" role="button" tabindex="0" data-gid="${esc(g.slug)}"><span class="kz">${esc(g.kuerzel || initials(g.name || g.slug))}</span><div><h2 class="gwname">${esc(g.name || g.slug)}${badge}</h2>${meta ? `<p class="smeta">${esc(meta)}</p>` : ''}<p class="gwline">${esc(line)}</p></div></div>`;
   });
   $('#main').innerHTML = h + '</div>';
@@ -456,7 +785,6 @@ function renderGewaesser() {
 /* ---------- Vorschläge ---------- */
 const VST_ORDER = ['im_test', 'offen', 'bestaetigt', 'verworfen'];
 const TRUST = { hoch: 3, mittel: 2, niedrig: 1 };
-const trunc = (t, n) => t.length > n ? t.slice(0, n).replace(/\s+\S*$/, '') + ' …' : t;
 const trustN = v => TRUST[String(v || '').toLowerCase()] || 0;
 const vStatus = e => STATUS[e.status] ? e.status : 'offen';
 const isActiveV = e => vStatus(e) === 'offen' || vStatus(e) === 'im_test';
@@ -501,60 +829,101 @@ function liveTips(s) {
   return `<details class="livetips" id="livetips"${state.tipsOpen ? ' open' : ''}><summary>Offene Vorschläge für diese Session (${tips.length})</summary>${tips.map(vRow).join('')}</details>`;
 }
 
-/* ---------- Ansicht: Live ---------- */
+/* ---------- Kopf eines Session-Formulars (Live-Start und Bearbeiten) ---------- */
 function gwSelectOptions(sel, withNew) {
   return state.gewaesser.map(g => `<option value="${esc(g.slug)}"${sel === g.slug ? ' selected' : ''}>${esc(g.name || g.slug)}</option>`).join('')
-    + (withNew ? `<option value="__neu"${sel === '__neu' ? ' selected' : ''}>Neues Gewässer …</option>` : '');
+    + (withNew ? `<option value="${NEU}"${sel === NEU ? ' selected' : ''}>Neues Gewässer …</option>` : '');
 }
-const typOptions = sel => `<option value="">Typ offen</option>` + KOEDERTYP.map(t => `<option${t === sel ? ' selected' : ''}>${t}</option>`).join('');
+function sessionHead(r, d) {
+  const g = state.gwMap[d.gw];
+  const zo = zielOptions(g);
+  if (d.ziel && !zo.includes(d.ziel)) zo.unshift(d.ziel);
+  return `<div class="gwsetup">
+      <label class="fld"><span>Gewässer</span><select ${bind(r, 'gw')} data-rerender="1">${gwSelectOptions(d.gw, true)}</select></label>
+      <label class="fld"><span>Setup (Rute, Rolle, Schnur)</span><select ${bind(r, 'setup')} data-rerender="1">${setupOptions(d.setup)}</select></label>
+    </div>
+    ${d.gw === NEU ? textFld(r, 'gwNeu', d.gwNeu, 'Name des Gewässers') : ''}
+    ${textFld(r, 'vorfach', d.vorfach, 'Vorfach (Material, Tragkraft, Länge in cm)', ' placeholder="z. B. Fluoro 0,40 mm, 60 cm"')}
+    ${spotSelect(r, 'spot', d.spot, g, 'Spot', 'kein Spot')}
+    <div class="grid2">
+      <label class="fld"><span>Zielfisch</span><select ${bind(r, 'ziel')}>${zo.map(z => `<option${z === d.ziel ? ' selected' : ''}>${esc(z)}</option>`).join('')}</select></label>
+      <label class="fld"><span>Angelart</span><select ${bind(r, 'art')}>${['Ufer', 'Watend'].map(z => `<option${z === d.art ? ' selected' : ''}>${z}</option>`).join('')}</select></label>
+    </div>`;
+}
+function applyGwDefaults(d) {
+  const g = state.gwMap[d.gw];
+  d.spot = ''; d.spotNeu = '';
+  if (g && Array.isArray(g.zielfische) && g.zielfische[0]) d.ziel = g.zielfische[0];
+  if (g) d.art = /watend/i.test(String(g.angelart || '')) ? 'Watend' : 'Ufer';
+  const ls = (state.settings.lastSetup || {})[d.gw];
+  if (ls && setupById(ls)) { d.setup = ls; d.vorfach = setupById(ls).vorfach || ''; }
+}
+function applySetupDefaults(d) {
+  const su = setupById(d.setup);
+  if (su) d.vorfach = su.vorfach || '';
+}
+function rememberSetup(gw, id) {
+  if (!gw) return;
+  state.settings.lastSetup = Object.assign({}, state.settings.lastSetup || {}, { [gw]: id || '' });
+  saveSettings();
+}
+
+/* ---------- Ansicht: Live ---------- */
 function startForm() {
   const F = state.form;
-  const g = state.gwMap[F.gw];
   return `<form class="startform" id="startform" novalidate>
     <h2>Session starten</h2>
     <p class="hint">Starte, wenn du am Wasser bist. Jeder Tipp auf Fang, Fehlbiss, Aussteiger oder Nachläufer speichert die genaue Uhrzeit, auch ohne Netz. Wetter, Luftdruck, Sonne, Mond und Tide ergänzt Claude später im Fangbuch.</p>
-    <label class="fld"><span>Gewässer</span><select name="gw">${gwSelectOptions(F.gw, true)}</select></label>
-    ${F.gw === '__neu' ? `<label class="fld"><span>Name des Gewässers</span><input name="gwNeu" value="${esc(F.gwNeu)}" autocomplete="off"></label>` : ''}
-    <label class="fld"><span>Spot</span><input name="spot" list="spotlist" value="${esc(F.spot)}" placeholder="z. B. Westufer" autocomplete="off"><datalist id="spotlist">${spotNames(g).map(x => `<option value="${esc(x)}"></option>`).join('')}</datalist></label>
+    ${sessionHead('f', F)}
+    <section class="formsec"><h3>Startköder</h3>${koederForm('f', 'k0', F.k0)}</section>
     <div class="grid2">
-      <label class="fld"><span>Zielfisch</span><select name="ziel">${zielOptions(g).map(z => `<option${z === F.ziel ? ' selected' : ''}>${esc(z)}</option>`).join('')}</select></label>
-      <label class="fld"><span>Angelart</span><select name="art">${['Ufer', 'Watend'].map(z => `<option${z === F.art ? ' selected' : ''}>${z}</option>`).join('')}</select></label>
-    </div>
-    <label class="fld"><span>Startköder</span><input name="koeder" value="${esc(F.koeder)}" placeholder="z. B. Gummifisch 7 cm, Motoroil, 7 g Jigkopf" autocomplete="off"></label>
-    <label class="fld"><span>Ködertyp</span><select name="koederTyp">${typOptions(F.koederTyp)}</select></label>
-    <div class="grid2">
-      <label class="fld"><span>Wassertemperatur in °C</span><input name="wt" inputmode="decimal" value="${esc(F.wt)}" placeholder="falls gemessen"></label>
-      <label class="fld"><span>Sichttiefe in cm</span><input name="sicht" inputmode="numeric" value="${esc(F.sicht)}" placeholder="optional"></label>
+      ${textFld('f', 'wt', F.wt, 'Wassertemperatur in °C', ' inputmode="decimal" placeholder="falls gemessen"')}
+      ${textFld('f', 'sicht', F.sicht, 'Sichttiefe in cm', ' inputmode="numeric" placeholder="optional"')}
     </div>
     ${state.settings.gps ? '<p class="hint">GPS ist an: Beim Start und bei jedem Fang wird die Position gespeichert.</p>' : ''}
     <button class="btn big" type="submit">Session starten</button>
+    ${labelsDatalist()}
   </form>`;
 }
-function fangEditor() {
-  const ev = state.live && state.live.ereignisse[state.fangEdit];
-  if (!ev) return '';
-  const g = state.gwMap[state.live.gewaesser];
-  const sel = ev.art || state.live.zielfisch;
-  const opts = artOptions(g);
-  if (sel && !opts.includes(sel)) opts.unshift(sel);
-  return `<div class="fangedit" id="fangedit"><h3>Fang um ${esc(ev.zeit)}</h3>
-    <div class="grid3">
-      <label class="fld"><span>Art</span><select id="fe-art">${opts.map(z => `<option${z === sel ? ' selected' : ''}>${esc(z)}</option>`).join('')}</select></label>
-      <label class="fld"><span>Länge in cm</span><input id="fe-len" inputmode="decimal" value="${ev.laengeCm != null ? esc(ev.laengeCm) : ''}"></label>
-      <label class="check"><input type="checkbox" id="fe-ent"${ev.entnommen ? ' checked' : ''}> Entnommen</label>
-    </div>
-    <label class="fld"><span>Notiz</span><input id="fe-note" value="${esc(ev.notiz || '')}" placeholder="z. B. Biss in der Absinkphase" autocomplete="off"></label>
-    <div class="row"><button class="btn" data-act="fe-save">Fang speichern</button><button class="linkbtn" data-act="fe-close">Später ergänzen</button></div>
+function evDraft(ev) {
+  return {
+    zeit: ev.zeit || '', typ: ev.typ, art: ev.art || '', laengeCm: str(ev.laengeCm), entnommen: !!ev.entnommen, notiz: ev.notiz || '',
+    koeder: ev.koeder || '', spot: ev.spot || '', spotNeu: '', tiefeM: str(ev.tiefeM),
+    koordinaten: ev.koordinaten ? clone(ev.koordinaten) : undefined, bild: ev.bild || undefined
+  };
+}
+function evEditor() {
+  const s = state.live;
+  const ev = s && s.ereignisse[state.evEdit];
+  const d = state.form.evd;
+  if (!ev || !d) return '';
+  const g = state.gwMap[s.gewaesser];
+  let fang = '';
+  if (ev.typ === 'fang') {
+    const opts = artOptions(g);
+    const sel = d.art || s.zielfisch;
+    if (sel && !opts.includes(sel)) opts.unshift(sel);
+    fang = `<div class="grid3">
+      <label class="fld"><span>Art</span><select ${bind('f', 'evd.art')}>${opts.map(z => `<option${z === sel ? ' selected' : ''}>${esc(z)}</option>`).join('')}</select></label>
+      ${textFld('f', 'evd.laengeCm', d.laengeCm, 'Länge in cm', ' inputmode="decimal"')}
+      <label class="check"><input type="checkbox" ${bind('f', 'evd.entnommen')}${d.entnommen ? ' checked' : ''}> Entnommen</label>
+    </div>`;
+  }
+  return `<div class="fangedit" id="evedit"><h3>${esc(TYP[ev.typ] || 'Eintrag')} um ${esc(ev.zeit)}</h3>
+    ${fang}
+    ${evExtras('f', 'evd', d, g)}
+    ${textFld('f', 'evd.notiz', d.notiz, 'Notiz', ' placeholder="z. B. Biss in der Absinkphase"')}
+    <div class="row"><button class="btn" data-act="ev-save">Speichern</button><button class="linkbtn" data-act="ev-close">Später ergänzen</button></div>
   </div>`;
 }
 function liveLog(s) {
   const items = [];
   events(s).forEach((ev, i) => {
-    const det = [ev.art, lenText(ev), ev.entnommen ? 'entnommen' : ''].filter(Boolean).join(', ');
-    const edit = ev.typ === 'fang' ? ` <button class="linkbtn" style="padding:0;min-height:0" data-act="fe-open" data-i="${i}">ergänzen</button>` : '';
+    const det = [ev.art, lenText(ev), ev.entnommen ? 'entnommen' : '', ev.spot && ev.spot !== s.spot ? ev.spot : '', num(ev.tiefeM) != null ? NF1.format(num(ev.tiefeM)) + ' m' : '', ev.koordinaten ? 'GPS' : '', ev.bild ? 'Screenshot' : ''].filter(Boolean).join(', ');
+    const edit = ` <button class="linkbtn" style="padding:0;min-height:0" data-act="ev-open" data-i="${i}">ergänzen</button>`;
     items.push({ z: ev.zeit, ts: ev._ts || 0, html: `<b class="ty ${TYP[ev.typ] ? ev.typ : ''}">${esc(TYP[ev.typ] || ev.typ)}</b>${det ? ' ' + esc(det) : ''}${ev.koeder ? '<span class="smeta"> auf ' + esc(ev.koeder) + '</span>' : ''}${edit}` });
   });
-  (s.koeder || []).forEach(k => items.push({ z: k.zeit, ts: k._ts || 0, html: 'Köder: ' + esc(koederText(k)) }));
+  (s.koeder || []).forEach(k => items.push({ z: k.zeit, ts: k._ts || 0, html: 'Köder: ' + esc(koederText(k)) + (koederExtra(k) ? '<span class="smeta">, ' + esc(koederExtra(k)) + '</span>' : '') }));
   (s.notizen || []).forEach(n => items.push({ z: n.zeit, ts: n._ts || 0, html: esc(n.text) }));
   const b = toMin(s.beginn);
   const key = z => { const m = evMin({ zeit: z }, b); return m == null ? -1 : m; };
@@ -564,7 +933,7 @@ function liveLog(s) {
 }
 function lastEntry(s) {
   let best = null;
-  [['ereignisse', 'Eintrag'], ['koeder', 'Köderwechsel'], ['notizen', 'Notiz']].forEach(([k]) => {
+  ['ereignisse', 'koeder', 'notizen'].forEach(k => {
     (s[k] || []).forEach((x, i) => { if (x && x._ts && (!best || x._ts > best.ts)) best = { k, i, ts: x._ts, x }; });
   });
   return best;
@@ -574,7 +943,7 @@ function liveRunning() {
   const sp = spanOf(s, true);
   const el = sp && sp.e != null ? sp.e - sp.b : 0;
   const st = statsOf(s);
-  const curK = currentKoeder(s);
+  const curK = (s.koeder || [])[s.koeder.length - 1];
   const last = lastEntry(s);
   const lastLabel = last ? (last.k === 'ereignisse' ? (TYP[last.x.typ] || 'Eintrag') : last.k === 'koeder' ? 'Köderwechsel' : 'Notiz') + ' von ' + last.x.zeit : '';
   return `<section class="live">
@@ -589,17 +958,17 @@ function liveRunning() {
       <button class="bb" data-act="ev" data-typ="aussteiger">Aussteiger</button>
       <button class="bb" data-act="ev" data-typ="nachlaeufer">Nachläufer</button>
     </div>
-    ${state.fangEdit != null ? fangEditor() : ''}
+    ${state.evEdit != null ? evEditor() : ''}
     ${liveTips(s)}
     <div class="live-block">
       <h3>Köder</h3>
-      <p class="smeta" style="margin-bottom:10px">${curK ? 'Aktuell: ' + esc(curK) : 'Noch kein Köder eingetragen.'}</p>
-      <label class="fld"><span>Neuer Köder</span><input id="k-neu" value="${esc(state.form.koederNeu)}" placeholder="z. B. Wobbler 9 cm, Barsch-Dekor" autocomplete="off"></label>
-      <div class="grid2"><label class="fld"><span>Ködertyp</span><select id="k-typ">${typOptions(state.form.koederNeuTyp)}</select></label><div class="fld"><span>&nbsp;</span><button class="btn ghost" data-act="koeder">Köder wechseln</button></div></div>
+      <p class="smeta" style="margin-bottom:10px">${curK ? 'Aktuell: ' + esc(koederText(curK)) + (koederExtra(curK) ? ', ' + esc(koederExtra(curK)) : '') : 'Noch kein Köder eingetragen.'}</p>
+      ${detailsBox('live:kneu', 'Köder wechseln', koederForm('f', 'kNeu', state.form.kNeu, { labelTitle: 'Neuer Köder' }) + '<button class="btn" data-act="koeder">Köder wechseln</button>')}
+      ${labelsDatalist()}
     </div>
     <div class="live-block">
       <h3>Notiz</h3>
-      <textarea id="n-neu" rows="2" placeholder="z. B. Kleinfisch springt am Westufer, Wind dreht auf West">${esc(state.form.note)}</textarea>
+      <textarea ${bind('f', 'note')} rows="2" placeholder="z. B. Kleinfisch springt am Westufer, Wind dreht auf West">${esc(state.form.note)}</textarea>
       <button class="btn ghost" data-act="note">Notiz speichern</button>
     </div>
     <div class="live-block">
@@ -648,24 +1017,6 @@ async function wakeOn() {
 }
 function wakeOff() { if (state.wakeLock) { try { state.wakeLock.release(); } catch (e) { /* egal */ } state.wakeLock = null; } }
 
-function getPos() {
-  return new Promise(res => {
-    if (!state.settings.gps || !navigator.geolocation) { res(null); return; }
-    navigator.geolocation.getCurrentPosition(
-      p => res({ lat: Math.round(p.coords.latitude * 1e5) / 1e5, lon: Math.round(p.coords.longitude * 1e5) / 1e5 }),
-      () => res(null),
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 }
-    );
-  });
-}
-function attachPos(target, s) {
-  getPos().then(p => {
-    if (!p) return;
-    target.koordinaten = p;
-    if (state.sessions.includes(s)) saveSession(s);
-  });
-}
-
 function newGwDoc(name, extra) {
   const ts = new Date().toISOString();
   return Object.assign({
@@ -675,8 +1026,8 @@ function newGwDoc(name, extra) {
   }, extra || {});
 }
 async function ensureGw(slugOrNew, newName, ziel) {
-  if (slugOrNew !== '__neu' && state.gwMap[slugOrNew]) return state.gwMap[slugOrNew];
-  const name = (newName || '').trim();
+  if (slugOrNew !== NEU && state.gwMap[slugOrNew]) return state.gwMap[slugOrNew];
+  const name = trim(newName);
   if (!name) { toast('Trag einen Namen für das Gewässer ein.'); return null; }
   const slug = slugify(name);
   if (!slug) { toast('Der Name braucht mindestens einen Buchstaben oder eine Zahl.'); return null; }
@@ -694,9 +1045,11 @@ function addGwLocal(g) {
 async function startLive() {
   if (state.live) return;
   const F = state.form;
+  if (F.spot === NEU && !trim(F.spotNeu)) { toast('Trag einen Namen für den neuen Spot ein.'); return; }
   let g;
   try { g = await ensureGw(F.gw, F.gwNeu, F.ziel); } catch (e) { return; }
   if (!g) return;
+  const spot = await resolveSpot(g, F.spot, F.spotNeu);
   const now = new Date();
   const datum = isoDate(now), beginn = hhmm(now);
   const beo = {};
@@ -704,21 +1057,23 @@ async function startLive() {
   if (wt != null) beo.wassertemp = wt;
   if (sicht != null) beo.sichttiefe = sicht;
   const ts = now.toISOString();
-  const k = (F.koeder || '').trim();
-  const kd = k ? { zeit: beginn, label: k } : null;
-  if (kd && F.koederTyp) kd.typ = F.koederTyp;
+  const k0 = kClean(Object.assign({}, F.k0, { zeit: beginn }));
+  const setup = setupSnapshot(F.setup, F.vorfach);
   const s = {
     appId: uuid(), id: '', status: 'entwurf', live: true, quelle: 'app', datum, beginn,
-    gewaesser: g.slug, gewaesserName: g.name || g.slug, spot: (F.spot || '').trim(), angelart: F.art || 'Ufer', zielfisch: F.ziel || '',
-    koeder: kd ? [kd] : [], ereignisse: [], beobachtungen: beo, notizen: [],
+    gewaesser: g.slug, gewaesserName: g.name || g.slug, spot, angelart: F.art || 'Ufer', zielfisch: F.ziel || '',
+    koeder: kHasContent(k0) ? [k0] : [], ereignisse: [], beobachtungen: beo, notizen: [],
     erstellt: ts, aktualisiert: ts, _uebertragenAm: null
   };
+  if (!spot) delete s.spot;
+  if (setup) s.setup = setup;
   try { await saveSession(s); } catch (e) { return; }
   state.sessions.push(s); sortSessions();
   state.live = s;
-  state.lastEnded = null; state.fangEdit = null; state.endConfirm = false;
-  F.koederNeu = ''; F.koederNeuTyp = ''; F.note = ''; F.gwNeu = ''; F.gw = g.slug;
+  state.lastEnded = null; state.evEdit = null; state.endConfirm = false;
+  F.kNeu = kDraft(null); F.note = ''; F.gwNeu = ''; F.gw = g.slug; F.spot = spot; F.spotNeu = ''; F.evd = null;
   lsSet('fangbuch-gw', g.slug);
+  rememberSetup(g.slug, F.setup);
   attachPos(s, s);
   startTimer();
   wakeOn();
@@ -727,11 +1082,17 @@ async function startLive() {
 }
 function resume(s) {
   ['ereignisse', 'koeder', 'notizen'].forEach(k => { if (!Array.isArray(s[k])) s[k] = []; });
-  state.live = s; state.fangEdit = null; state.endConfirm = false;
+  state.live = s; state.evEdit = null; state.endConfirm = false;
   startTimer();
   wakeOn();
 }
 function touch(s) { s.aktualisiert = new Date().toISOString(); return saveSession(s); }
+function openEvEditor(i) {
+  const ev = state.live && state.live.ereignisse[i];
+  if (!ev) return;
+  state.evEdit = i;
+  state.form.evd = evDraft(ev);
+}
 function addEvent(typ) {
   const s = state.live;
   if (!s || !TYP[typ]) return;
@@ -741,27 +1102,33 @@ function addEvent(typ) {
   if (s.spot) ev.spot = s.spot;
   if (typ === 'fang' && s.zielfisch && s.zielfisch !== 'Andere') ev.art = s.zielfisch;
   s.ereignisse.push(ev);
-  if (typ === 'fang') { state.fangEdit = s.ereignisse.length - 1; attachPos(ev, s); }
+  openEvEditor(s.ereignisse.length - 1);
+  if (typ === 'fang') attachPos(ev, s);
   touch(s);
   try { if (navigator.vibrate) navigator.vibrate(30); } catch (e) { /* egal */ }
   toast(`${TYP[typ]} um ${ev.zeit} erfasst`);
   renderAll();
-  if (typ === 'fang') { const fe = $('#fangedit'); if (fe && fe.scrollIntoView) fe.scrollIntoView({ block: 'nearest' }); }
 }
-function saveFang() {
+async function saveEv() {
   const s = state.live;
-  const ev = s && s.ereignisse[state.fangEdit];
-  if (!ev) return;
-  const art = $('#fe-art').value;
-  const L = num($('#fe-len').value);
-  const note = $('#fe-note').value.trim();
-  if (art) ev.art = art;
-  if (L != null) ev.laengeCm = L; else delete ev.laengeCm;
-  ev.entnommen = $('#fe-ent').checked;
-  if (note) ev.notiz = note; else delete ev.notiz;
-  state.fangEdit = null;
+  const ev = s && s.ereignisse[state.evEdit];
+  const d = state.form.evd;
+  if (!ev || !d) return;
+  if (d.spot === NEU && !trim(d.spotNeu)) { toast('Trag einen Namen für den neuen Spot ein.'); return; }
+  if (ev.typ === 'fang') {
+    if (d.art) ev.art = d.art;
+    const L = num(d.laengeCm);
+    if (L != null) ev.laengeCm = L; else delete ev.laengeCm;
+    ev.entnommen = !!d.entnommen;
+  }
+  const spot = await resolveSpot(state.gwMap[s.gewaesser], d.spot, d.spotNeu);
+  if (spot) ev.spot = spot; else delete ev.spot;
+  const t = num(d.tiefeM);
+  if (t != null) ev.tiefeM = t; else delete ev.tiefeM;
+  if (trim(d.notiz)) ev.notiz = trim(d.notiz); else delete ev.notiz;
+  state.evEdit = null; state.form.evd = null;
   touch(s);
-  toast('Fang ergänzt');
+  toast('Gespeichert');
   renderView();
 }
 function undo() {
@@ -769,26 +1136,26 @@ function undo() {
   const last = s && lastEntry(s);
   if (!last) return;
   s[last.k].splice(last.i, 1);
-  if (last.k === 'ereignisse' && state.fangEdit != null) state.fangEdit = null;
+  if (last.k === 'ereignisse' && state.evEdit != null) { state.evEdit = null; state.form.evd = null; }
   touch(s);
   toast(`${last.k === 'ereignisse' ? (TYP[last.x.typ] || 'Eintrag') : last.k === 'koeder' ? 'Köderwechsel' : 'Notiz'} von ${last.x.zeit} entfernt`);
   renderAll();
 }
 function changeKoeder() {
   const s = state.live;
-  const val = (state.form.koederNeu || '').trim();
-  if (!s || !val) { toast('Trag zuerst den neuen Köder ein.'); return; }
-  const k = { zeit: hhmm(new Date()), label: val, _ts: Date.now() };
-  if (state.form.koederNeuTyp) k.typ = state.form.koederNeuTyp;
+  if (!s) return;
+  const k = kClean(Object.assign({}, state.form.kNeu, { zeit: hhmm(new Date()), _ts: Date.now() }));
+  if (!kHasContent(k)) { toast('Trag zuerst den neuen Köder ein.'); return; }
   s.koeder.push(k);
-  state.form.koederNeu = ''; state.form.koederNeuTyp = '';
+  state.form.kNeu = kDraft(null);
+  state.openDet.delete('live:kneu');
   touch(s);
   toast('Köderwechsel erfasst');
   renderView();
 }
 function addNote() {
   const s = state.live;
-  const val = (state.form.note || '').trim();
+  const val = trim(state.form.note);
   if (!s || !val) { toast('Die Notiz ist noch leer.'); return; }
   s.notizen.push({ zeit: hhmm(new Date()), text: val, _ts: Date.now() });
   state.form.note = '';
@@ -804,7 +1171,7 @@ async function endLive() {
   finalize(s);
   try { await saveSession(s); } catch (e) { s.live = true; delete s.ende; return; }
   state.lastEnded = s.appId;
-  state.live = null; state.endConfirm = false; state.fangEdit = null;
+  state.live = null; state.endConfirm = false; state.evEdit = null; state.form.evd = null;
   stopTimer();
   wakeOff();
   renderAll();
@@ -813,19 +1180,25 @@ async function endLive() {
 
 /* ---------- Nachtragen und Bearbeiten ---------- */
 function newDraft() {
-  const now = new Date();
   const F = state.form;
-  const gw = state.gwMap[F.gw] ? F.gw : (state.gewaesser[0] ? state.gewaesser[0].slug : '__neu');
-  return { appId: null, datum: isoDate(now), beginn: '', ende: '', gewaesser: gw, gwNeu: '', spot: '', zielfisch: F.ziel || 'Barsch', angelart: F.art || 'Ufer', wt: '', sicht: '', koeder: [], ereignisse: [], notizen: [], eindruck: '', naechstesMal: '' };
+  const d = { appId: null, datum: isoDate(new Date()), beginn: '', ende: '', gw: state.gwMap[F.gw] ? F.gw : (state.gewaesser[0] ? state.gewaesser[0].slug : NEU), gwNeu: '', spot: '', spotNeu: '', ziel: F.ziel || 'Barsch', art: F.art || 'Ufer', setup: '', vorfach: '', wt: '', sicht: '', koeder: [], ereignisse: [], notizen: [], eindruck: '', naechstesMal: '' };
+  const ls = (state.settings.lastSetup || {})[d.gw];
+  if (ls && setupById(ls)) { d.setup = ls; d.vorfach = setupById(ls).vorfach || ''; }
+  return d;
+}
+function edEvDraft(ev, autoK) {
+  return Object.assign(clone(ev), evDraft(ev), { _autoK: !!autoK });
 }
 function draftFrom(s) {
   const Bo = s.beobachtungen || {};
+  const su = s.setup || {};
   return {
     appId: s.appId, datum: s.datum || '', beginn: s.beginn || '', ende: s.ende || '',
-    gewaesser: state.gwMap[s.gewaesser] ? s.gewaesser : '__neu', gwNeu: state.gwMap[s.gewaesser] ? '' : (s.gewaesserName || s.gewaesser || ''),
-    spot: s.spot || '', zielfisch: s.zielfisch || '', angelart: s.angelart || 'Ufer',
-    wt: Bo.wassertemp != null ? String(Bo.wassertemp) : '', sicht: Bo.sichttiefe != null ? String(Bo.sichttiefe) : '',
-    koeder: clone(s.koeder || []), ereignisse: clone(s.ereignisse || []).map(e => Object.assign(e, { laengeCm: e.laengeCm != null ? String(e.laengeCm) : '' })),
+    gw: state.gwMap[s.gewaesser] ? s.gewaesser : NEU, gwNeu: state.gwMap[s.gewaesser] ? '' : (s.gewaesserName || s.gewaesser || ''),
+    spot: s.spot || '', spotNeu: '', ziel: s.zielfisch || '', art: s.angelart || 'Ufer',
+    setup: su.setupId || '', vorfach: su.vorfach || '',
+    wt: str(Bo.wassertemp), sicht: str(Bo.sichttiefe),
+    koeder: (s.koeder || []).map(kDraft), ereignisse: (s.ereignisse || []).map(ev => edEvDraft(ev, false)),
     notizen: clone(s.notizen || []), eindruck: s.eindruck || '', naechstesMal: s.naechstesMal || ''
   };
 }
@@ -836,74 +1209,82 @@ function openEditor(s) {
   renderAll();
   window.scrollTo(0, 0);
 }
-const B = (path, v, attrs = '') => `data-b="${path}" value="${esc(v == null ? '' : v)}"${attrs}`;
+// Köder, der zu einer Uhrzeit im Wasser war (letzter Wechsel vor oder zu dieser Zeit).
+function koederAt(d, zeit) {
+  const b = toMin(d.beginn);
+  const ks = d.koeder.map(k => ({ label: trim(k.label) || trim(k.modell) || eigenValue(k.typ, k.typEigen), m: evMin(k, b) })).filter(x => x.label && x.m != null).sort((a, c) => a.m - c.m);
+  if (!ks.length) return '';
+  const t = evMin({ zeit }, b);
+  if (t == null) return ks[ks.length - 1].label;
+  let cur = ks[0].label;
+  ks.forEach(x => { if (x.m <= t) cur = x.label; });
+  return cur;
+}
 function koederRow(k, i) {
+  const p = 'koeder.' + i;
   return `<div class="erow"><div class="erow-head">
-      <label class="fld"><span>Ab</span><input type="time" ${B('koeder.' + i + '.zeit', k.zeit)}></label>
-      <label class="fld"><span>Köder</span><input ${B('koeder.' + i + '.label', k.label)} autocomplete="off"></label>
+      <label class="fld"><span>Ab</span><input type="time" ${inp('e', p + '.zeit', k.zeit)}></label>
+      <label class="fld"><span>Köder</span><input ${inp('e', p + '.label', k.label, ' autocomplete="off" list="dl-klabels" data-prefill="1"')}></label>
       <button class="xbtn" type="button" data-act="row-del" data-list="koeder" data-i="${i}" aria-label="Köder entfernen">×</button>
     </div>
-    <label class="fld erow-more"><span>Ködertyp</span><select data-b="koeder.${i}.typ">${typOptions(k.typ)}</select></label></div>`;
+    <div class="erow-more">${koederForm('e', p, k, { withLabel: false })}</div></div>`;
 }
 function eventRow(ev, i, d) {
-  const g = state.gwMap[d.gewaesser];
-  const kl = uniq((d.koeder || []).map(k => k.label));
+  const g = state.gwMap[d.gw];
+  const p = 'ereignisse.' + i;
+  const kl = uniq(d.koeder.map(k => trim(k.label)));
   const arts = artOptions(g);
   if (ev.art && !arts.includes(ev.art)) arts.unshift(ev.art);
   return `<div class="erow"><div class="erow-head">
-      <label class="fld"><span>Uhrzeit</span><input type="time" ${B('ereignisse.' + i + '.zeit', ev.zeit)}></label>
-      <label class="fld"><span>Art des Eintrags</span><select data-b="ereignisse.${i}.typ" data-rerender="1">${Object.entries(TYP).map(([k, l]) => `<option value="${k}"${ev.typ === k ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label class="fld"><span>Uhrzeit</span><input type="time" ${inp('e', p + '.zeit', ev.zeit, ' data-rerender="1"')}></label>
+      <label class="fld"><span>Art des Eintrags</span><select ${bind('e', p + '.typ')} data-rerender="1">${Object.entries(TYP).map(([k, l]) => `<option value="${k}"${ev.typ === k ? ' selected' : ''}>${l}</option>`).join('')}</select></label>
       <button class="xbtn" type="button" data-act="row-del" data-list="ereignisse" data-i="${i}" aria-label="Eintrag entfernen">×</button>
     </div>
     <div class="erow-more">
     ${ev.typ === 'fang' ? `<div class="grid3">
-      <label class="fld"><span>Fischart</span><select data-b="ereignisse.${i}.art"><option value="">offen</option>${arts.map(a => `<option${a === ev.art ? ' selected' : ''}>${esc(a)}</option>`).join('')}</select></label>
-      <label class="fld"><span>Länge in cm</span><input inputmode="decimal" ${B('ereignisse.' + i + '.laengeCm', ev.laengeCm)}></label>
-      <label class="check"><input type="checkbox" data-b="ereignisse.${i}.entnommen"${ev.entnommen ? ' checked' : ''}> Entnommen</label>
+      <label class="fld"><span>Fischart</span><select ${bind('e', p + '.art')}><option value="">offen</option>${arts.map(a => `<option${a === ev.art ? ' selected' : ''}>${esc(a)}</option>`).join('')}</select></label>
+      ${textFld('e', p + '.laengeCm', ev.laengeCm, 'Länge in cm', ' inputmode="decimal"')}
+      <label class="check"><input type="checkbox" ${bind('e', p + '.entnommen')}${ev.entnommen ? ' checked' : ''}> Entnommen</label>
     </div>` : ''}
     <div class="grid2">
-      <label class="fld"><span>Köder</span><input list="dl-koeder" ${B('ereignisse.' + i + '.koeder', ev.koeder)} autocomplete="off"></label>
-      <label class="fld"><span>Notiz</span><input ${B('ereignisse.' + i + '.notiz', ev.notiz)} autocomplete="off"></label>
-    </div></div>
-    ${i === 0 ? `<datalist id="dl-koeder">${kl.map(x => `<option value="${esc(x)}"></option>`).join('')}</datalist>` : ''}
+      <label class="fld"><span>Köder</span><input list="dl-evkoeder" ${inp('e', p + '.koeder', ev.koeder, ' autocomplete="off" data-manualk="1"')}></label>
+      ${textFld('e', p + '.notiz', ev.notiz, 'Notiz')}
+    </div>
+    ${evExtras('e', p, ev, g)}
+    </div>
+    ${i === 0 ? `<datalist id="dl-evkoeder">${kl.map(x => `<option value="${esc(x)}"></option>`).join('')}</datalist>` : ''}
   </div>`;
 }
 function noteRow(n, i) {
   return `<div class="erow"><div class="erow-head">
-    <label class="fld"><span>Uhrzeit</span><input type="time" ${B('notizen.' + i + '.zeit', n.zeit)}></label>
-    <label class="fld"><span>Notiz</span><input ${B('notizen.' + i + '.text', n.text)} autocomplete="off"></label>
+    <label class="fld"><span>Uhrzeit</span><input type="time" ${inp('e', 'notizen.' + i + '.zeit', n.zeit)}></label>
+    <label class="fld"><span>Notiz</span><input ${inp('e', 'notizen.' + i + '.text', n.text, ' autocomplete="off"')}></label>
     <button class="xbtn" type="button" data-act="row-del" data-list="notizen" data-i="${i}" aria-label="Notiz entfernen">×</button>
   </div></div>`;
 }
 function sessionEditor() {
   const E = state.edit, d = E.d;
-  const g = state.gwMap[d.gewaesser];
-  const zo = zielOptions(g);
-  if (d.zielfisch && !zo.includes(d.zielfisch)) zo.unshift(d.zielfisch);
+  d.ereignisse.forEach(ev => { if (ev._autoK) ev.koeder = koederAt(d, ev.zeit); });
   return `<div class="card">
     <h2>${d.appId ? 'Session bearbeiten' : 'Session nachtragen'}</h2>
     <p class="hint">${d.appId ? 'Änderungen sind möglich, bis die Session übertragen ist.' : 'Für Angeltage, die du nicht live erfasst hast. Auch Nullrunden zählen: einfach ohne Einträge speichern.'}</p>
-    <label class="fld"><span>Gewässer</span><select data-b="gewaesser" data-rerender="1">${gwSelectOptions(d.gewaesser, true)}</select></label>
-    ${d.gewaesser === '__neu' ? `<label class="fld"><span>Name des Gewässers</span><input ${B('gwNeu', d.gwNeu)} autocomplete="off"></label>` : ''}
-    <label class="fld"><span>Spot</span><input list="dl-spot" ${B('spot', d.spot)} autocomplete="off"><datalist id="dl-spot">${spotNames(g).map(x => `<option value="${esc(x)}"></option>`).join('')}</datalist></label>
+    ${sessionHead('e', d)}
+    <label class="fld"><span>Datum</span><input type="date" ${inp('e', 'datum', d.datum)}></label>
     <div class="grid2">
-      <label class="fld"><span>Zielfisch</span><select data-b="zielfisch">${zo.map(z => `<option${z === d.zielfisch ? ' selected' : ''}>${esc(z)}</option>`).join('')}</select></label>
-      <label class="fld"><span>Angelart</span><select data-b="angelart">${['Ufer', 'Watend'].map(z => `<option${z === d.angelart ? ' selected' : ''}>${z}</option>`).join('')}</select></label>
-    </div>
-    <label class="fld"><span>Datum</span><input type="date" ${B('datum', d.datum)}></label>
-    <div class="grid2">
-      <label class="fld"><span>Beginn</span><input type="time" ${B('beginn', d.beginn)}></label>
-      <label class="fld"><span>Ende</span><input type="time" ${B('ende', d.ende)}></label>
+      <label class="fld"><span>Beginn</span><input type="time" ${inp('e', 'beginn', d.beginn)}></label>
+      <label class="fld"><span>Ende</span><input type="time" ${inp('e', 'ende', d.ende)}></label>
     </div>
     <div class="grid2">
-      <label class="fld"><span>Wassertemperatur in °C</span><input inputmode="decimal" ${B('wt', d.wt)} placeholder="falls gemessen"></label>
-      <label class="fld"><span>Sichttiefe in cm</span><input inputmode="numeric" ${B('sicht', d.sicht)} placeholder="optional"></label>
+      ${textFld('e', 'wt', d.wt, 'Wassertemperatur in °C', ' inputmode="decimal" placeholder="falls gemessen"')}
+      ${textFld('e', 'sicht', d.sicht, 'Sichttiefe in cm', ' inputmode="numeric" placeholder="optional"')}
     </div>
     <section><h3>Köder</h3>
       ${d.koeder.map(koederRow).join('') || '<p class="hint">Noch kein Köder.</p>'}
       <button class="btn ghost small" type="button" data-act="row-add" data-list="koeder">Köder hinzufügen</button>
+      ${labelsDatalist()}
     </section>
     <section><h3>Bisse, Fänge und Nachläufer</h3>
+      <p class="hint">Der Köder eines Eintrags richtet sich nach der Uhrzeit und deinen Köderwechseln, solange du ihn nicht selbst änderst.</p>
       ${d.ereignisse.map((ev, i) => eventRow(ev, i, d)).join('') || '<p class="hint">Keine Einträge. Ohne Einträge wird die Session als Nullrunde gespeichert.</p>'}
       <button class="btn ghost small" type="button" data-act="row-add" data-list="ereignisse">Eintrag hinzufügen</button>
     </section>
@@ -912,8 +1293,8 @@ function sessionEditor() {
       <button class="btn ghost small" type="button" data-act="row-add" data-list="notizen">Notiz hinzufügen</button>
     </section>
     <section>
-      <label class="fld"><span>Eindruck</span><textarea rows="3" data-b="eindruck">${esc(d.eindruck)}</textarea></label>
-      <label class="fld"><span>Beim nächsten Mal testen</span><textarea rows="2" data-b="naechstesMal">${esc(d.naechstesMal)}</textarea></label>
+      <label class="fld"><span>Eindruck</span><textarea rows="3" ${bind('e', 'eindruck')}>${esc(d.eindruck)}</textarea></label>
+      <label class="fld"><span>Beim nächsten Mal testen</span><textarea rows="2" ${bind('e', 'naechstesMal')}>${esc(d.naechstesMal)}</textarea></label>
     </section>
     ${E.err ? `<div class="note-card warn" role="alert"><p>${esc(E.err)}</p></div>` : ''}
     <div class="formactions">
@@ -925,18 +1306,17 @@ function sessionEditor() {
       : '<button class="linkbtn" data-act="del">Session löschen</button>'}</div>` : ''}
   </div>`;
 }
-function setPath(obj, path, val) {
-  const parts = path.split('.');
-  let o = obj;
-  for (let i = 0; i < parts.length - 1; i++) { o = o[parts[i]]; if (o == null) return; }
-  o[parts[parts.length - 1]] = val;
-}
 function addRow(list) {
   const d = state.edit.d;
-  const lastT = (arr) => { const x = arr.filter(r => isTime(r.zeit)); return x.length ? x[x.length - 1].zeit : (d.beginn || ''); };
-  if (list === 'koeder') d.koeder.push({ zeit: d.koeder.length ? lastT(d.koeder) : (d.beginn || ''), label: '' });
-  else if (list === 'ereignisse') d.ereignisse.push({ zeit: lastT(d.ereignisse), typ: 'fang', art: d.zielfisch && d.zielfisch !== 'Andere' ? d.zielfisch : '', koeder: d.koeder.length ? d.koeder[d.koeder.length - 1].label : '', laengeCm: '' });
-  else if (list === 'notizen') d.notizen.push({ zeit: lastT(d.notizen), text: '' });
+  const lastT = arr => { const x = arr.filter(r => isTime(r.zeit)); return x.length ? x[x.length - 1].zeit : (d.beginn || ''); };
+  if (list === 'koeder') {
+    const k = kDraft(null);
+    k.zeit = d.koeder.length ? lastT(d.koeder) : (d.beginn || '');
+    d.koeder.push(k);
+  } else if (list === 'ereignisse') {
+    const zeit = lastT(d.ereignisse);
+    d.ereignisse.push({ zeit, typ: 'fang', art: d.ziel && d.ziel !== 'Andere' ? d.ziel : '', koeder: koederAt(d, zeit), laengeCm: '', spot: d.spot !== NEU ? d.spot : '', spotNeu: '', tiefeM: '', _autoK: true });
+  } else if (list === 'notizen') d.notizen.push({ zeit: lastT(d.notizen), text: '' });
   renderView();
 }
 function delRow(list, i) { state.edit.d[list].splice(i, 1); renderView(); }
@@ -947,17 +1327,19 @@ async function saveEditor() {
   if (!isTime(d.beginn)) return fail('Trag die Uhrzeit ein, zu der du angefangen hast.');
   if (!isTime(d.ende)) return fail('Trag die Uhrzeit ein, zu der du aufgehört hast.');
   if (d.datum > isoDate(new Date())) return fail('Das Datum liegt in der Zukunft.');
-  if (d.gewaesser === '__neu' && !String(d.gwNeu || '').trim()) return fail('Trag einen Namen für das Gewässer ein.');
-  for (const [list, label] of [['koeder', 'Köder'], ['ereignisse', 'Eintrag'], ['notizen', 'Notiz']]) {
-    if (d[list].some(r => !isTime(r.zeit))) return fail(`Bei jedem ${label === 'Notiz' ? 'Notiz-Eintrag' : label} fehlt noch die Uhrzeit.`);
+  if (d.gw === NEU && !trim(d.gwNeu)) return fail('Trag einen Namen für das Gewässer ein.');
+  if (d.spot === NEU && !trim(d.spotNeu)) return fail('Trag einen Namen für den neuen Spot ein.');
+  if (d.ereignisse.some(ev => ev.spot === NEU && !trim(ev.spotNeu))) return fail('Bei einem Eintrag fehlt noch der Name des neuen Spots.');
+  for (const [list, label] of [['koeder', 'Köder'], ['ereignisse', 'Eintrag'], ['notizen', 'Notiz-Eintrag']]) {
+    if (d[list].some(r => !isTime(r.zeit))) return fail(`Bei jedem ${label} fehlt noch die Uhrzeit.`);
   }
-  if (d.koeder.some(k => !String(k.label || '').trim())) return fail('Ein Köder hat noch keine Bezeichnung. Füll sie aus oder entferne die Zeile.');
-  if (d.notizen.some(n => !String(n.text || '').trim())) return fail('Eine Notiz ist leer. Füll sie aus oder entferne die Zeile.');
+  if (d.koeder.some(k => !kHasContent(kClean(k)))) return fail('Ein Köder hat noch keine Bezeichnung. Füll sie aus oder entferne die Zeile.');
+  if (d.notizen.some(n => !trim(n.text))) return fail('Eine Notiz ist leer. Füll sie aus oder entferne die Zeile.');
   const sp = spanOf({ beginn: d.beginn, ende: d.ende });
   const outside = [].concat(d.ereignisse, d.koeder, d.notizen).some(r => { const m = evMin(r, sp.b); return m != null && (m < sp.b - 1 || m > sp.e + 1); });
   if (outside && !E.outsideOk) { E.outsideOk = true; return fail('Mindestens eine Uhrzeit liegt außerhalb von Beginn und Ende. Prüf das kurz; tippst du nochmal auf „Speichern“, wird trotzdem gespeichert.'); }
   let g;
-  try { g = await ensureGw(d.gewaesser, d.gwNeu, d.zielfisch); } catch (e) { return; }
+  try { g = await ensureGw(d.gw, d.gwNeu, d.ziel); } catch (e) { return; }
   if (!g) return;
   const old = d.appId ? state.sessions.find(s => s.appId === d.appId) : null;
   if (old && (isDone(old) || isLive(old))) return fail('Diese Session ist gesperrt.');
@@ -965,29 +1347,48 @@ async function saveEditor() {
   const s = old ? clone(old) : { appId: uuid(), id: '', status: 'entwurf', live: false, quelle: 'app', erstellt: ts, _uebertragenAm: null };
   s.datum = d.datum; s.beginn = normTime(d.beginn); s.ende = normTime(d.ende);
   s.gewaesser = g.slug; s.gewaesserName = g.name || g.slug;
-  s.spot = String(d.spot || '').trim(); s.zielfisch = d.zielfisch; s.angelart = d.angelart;
+  s.spot = await resolveSpot(g, d.spot, d.spotNeu);
+  if (!s.spot) delete s.spot;
+  s.zielfisch = d.ziel; s.angelart = d.art;
+  // Setup als Momentaufnahme: Bleibt das Setup gleich, bleibt auch die alte Aufnahme, nur das Vorfach wird übernommen.
+  const oldSu = old && old.setup ? old.setup : null;
+  let su;
+  if (d.setup && oldSu && oldSu.setupId === d.setup) { su = Object.assign({}, oldSu); if (trim(d.vorfach)) su.vorfach = trim(d.vorfach); else delete su.vorfach; }
+  else su = setupSnapshot(d.setup, d.vorfach);
+  if (su && Object.keys(su).length) s.setup = su; else delete s.setup;
   const beo = Object.assign({}, s.beobachtungen || {});
   const wt = num(d.wt), si = num(d.sicht);
   if (wt != null) beo.wassertemp = wt; else delete beo.wassertemp;
   if (si != null) beo.sichttiefe = si; else delete beo.sichttiefe;
   s.beobachtungen = beo;
-  s.koeder = d.koeder.map(k => { const o = Object.assign({}, k, { zeit: normTime(k.zeit), label: String(k.label).trim() }); if (!o.typ) delete o.typ; return o; });
-  s.ereignisse = d.ereignisse.map(ev => {
-    const o = Object.assign({}, ev, { zeit: normTime(ev.zeit) });
-    const L = num(ev.laengeCm);
-    if (L != null) o.laengeCm = L; else delete o.laengeCm;
-    ['art', 'koeder', 'notiz'].forEach(k => { o[k] = String(o[k] || '').trim(); if (!o[k]) delete o[k]; });
-    if (o.typ !== 'fang') { delete o.art; delete o.laengeCm; delete o.entnommen; }
-    else o.entnommen = !!o.entnommen;
-    return o;
-  }).sort((a, b) => evMin(a, sp.b) - evMin(b, sp.b));
-  s.notizen = d.notizen.map(n => Object.assign({}, n, { zeit: normTime(n.zeit), text: String(n.text).trim() }));
-  ['eindruck', 'naechstesMal'].forEach(k => { const v = String(d[k] || '').trim(); if (v) s[k] = v; else delete s[k]; });
+  s.koeder = d.koeder.map(kClean);
+  const evs = [];
+  for (const ev of d.ereignisse) {
+    const o = {};
+    Object.keys(ev).forEach(k => { if (!['laengeCm', 'tiefeM', 'spotNeu', '_autoK', 'entnommen'].includes(k)) o[k] = ev[k]; });
+    o.zeit = normTime(ev.zeit);
+    if (ev._autoK) o.koeder = koederAt(d, ev.zeit);
+    const L = num(ev.laengeCm), T = num(ev.tiefeM);
+    if (L != null && o.typ === 'fang') o.laengeCm = L;
+    if (T != null) o.tiefeM = T;
+    o.spot = await resolveSpot(g, ev.spot, ev.spotNeu);
+    ['art', 'koeder', 'notiz', 'spot'].forEach(k => { o[k] = trim(o[k]); if (!o[k]) delete o[k]; });
+    if (!o.koordinaten) delete o.koordinaten;
+    if (!o.bild) delete o.bild;
+    if (o.typ !== 'fang') delete o.art;
+    else o.entnommen = !!ev.entnommen;
+    evs.push(o);
+  }
+  s.ereignisse = evs.sort((a, b) => evMin(a, sp.b) - evMin(b, sp.b));
+  s.notizen = d.notizen.map(n => Object.assign({}, n, { zeit: normTime(n.zeit), text: trim(n.text) }));
+  ['eindruck', 'naechstesMal'].forEach(k => { const v = trim(d[k]); if (v) s[k] = v; else delete s[k]; });
   s.live = false;
   finalize(s);
   try { await saveSession(s); } catch (e) { return; }
   state.sessions = state.sessions.filter(x => x.appId !== s.appId).concat(s); sortSessions();
+  rememberSetup(g.slug, d.setup);
   state.edit = null; state.delConfirm = false;
+  gcBilder();
   toast(old ? 'Änderungen gespeichert' : 'Session gespeichert');
   state.view = 'sessions';
   renderAll();
@@ -1000,13 +1401,14 @@ async function deleteSession(id) {
   state.sessions = state.sessions.filter(x => x.appId !== id);
   state.edit = null; state.delConfirm = false;
   if ($('#sheet').open) $('#sheet').close();
+  gcBilder();
   toast('Session gelöscht');
   renderAll();
 }
 
 /* ---------- Gewässer anlegen und bearbeiten ---------- */
 function openGwEditor(g) {
-  if (g && (g._quelle !== 'app' || g._uebertragenAm)) return;
+  if (g && !isNewGw(g)) return;
   state.edit = {
     kind: 'gw', orig: g ? g.slug : null, err: '',
     d: g ? { name: g.name || '', kuerzel: g.kuerzel || '', typ: g.typ || '', lage: g.lage || '', tide: g.tide || 'prüfen', zielfische: (g.zielfische || []).join(', '), spots: spotNames(g).join('\n'), beschreibung: g.beschreibung || '' }
@@ -1022,16 +1424,16 @@ function gwEditor() {
   return `<div class="card">
     <h2>${E.orig ? 'Gewässer bearbeiten' : 'Neues Gewässer'}</h2>
     <p class="hint">Neue Gewässer gehen beim nächsten Übertragen mit ins Fangbuch. Claude ergänzt dort den Steckbrief.</p>
-    <label class="fld"><span>Name</span><input ${B('name', d.name)} autocomplete="off" placeholder="z. B. Stadtsee"></label>
+    ${textFld('e', 'name', d.name, 'Name', ' placeholder="z. B. Stadtsee"')}
     <div class="grid2">
-      <label class="fld"><span>Kürzel (2 bis 3 Buchstaben)</span><input ${B('kuerzel', d.kuerzel, ' maxlength="3" autocapitalize="characters"')} placeholder="${esc(d.name ? initials(d.name) : 'z. B. HH')}"></label>
-      <label class="fld"><span>Typ</span><select data-b="typ"><option value="">offen</option>${GWTYP.map(t => `<option${t === d.typ ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
+      ${textFld('e', 'kuerzel', d.kuerzel, 'Kürzel (2 bis 3 Buchstaben)', ` maxlength="3" autocapitalize="characters" placeholder="${esc(d.name ? initials(d.name) : 'z. B. HH')}"`)}
+      ${selFld('e', 'typ', d.typ, 'Typ', GWTYP)}
     </div>
-    <label class="fld"><span>Lage</span><input ${B('lage', d.lage)} autocomplete="off" placeholder="z. B. Ort oder Landkreis"></label>
-    <label class="fld"><span>Tide</span><select data-b="tide">${['prüfen', 'ja', 'nein'].map(t => `<option${t === d.tide ? ' selected' : ''}>${t}</option>`).join('')}</select></label>
-    <label class="fld"><span>Zielfische (mit Komma getrennt)</span><input ${B('zielfische', d.zielfische)} autocomplete="off" placeholder="z. B. Barsch, Zander"></label>
-    <label class="fld"><span>Spots (einer pro Zeile)</span><textarea rows="3" data-b="spots">${esc(d.spots)}</textarea></label>
-    <label class="fld"><span>Beschreibung</span><textarea rows="3" data-b="beschreibung">${esc(d.beschreibung)}</textarea></label>
+    ${textFld('e', 'lage', d.lage, 'Lage', ' placeholder="z. B. Ort oder Landkreis"')}
+    ${selFld('e', 'tide', d.tide, 'Tide', ['prüfen', 'ja', 'nein'], { empty: null })}
+    ${textFld('e', 'zielfische', d.zielfische, 'Zielfische (mit Komma getrennt)', ' placeholder="z. B. Barsch, Zander"')}
+    <label class="fld"><span>Spots (einer pro Zeile)</span><textarea rows="3" ${bind('e', 'spots')}>${esc(d.spots)}</textarea></label>
+    <label class="fld"><span>Beschreibung</span><textarea rows="3" ${bind('e', 'beschreibung')}>${esc(d.beschreibung)}</textarea></label>
     ${E.err ? `<div class="note-card warn" role="alert"><p>${esc(E.err)}</p></div>` : ''}
     <div class="formactions">
       <button class="btn big" data-act="gw-save">Speichern</button>
@@ -1042,7 +1444,7 @@ function gwEditor() {
 async function saveGwEditor() {
   const E = state.edit, d = E.d;
   const fail = msg => { E.err = msg; renderView(); };
-  const name = String(d.name || '').trim();
+  const name = trim(d.name);
   if (!name) return fail('Trag einen Namen ein.');
   const slug = E.orig || slugify(name);
   if (!slug) return fail('Der Name braucht mindestens einen Buchstaben oder eine Zahl.');
@@ -1052,7 +1454,7 @@ async function saveGwEditor() {
   const old = E.orig ? state.gwMap[E.orig] : null;
   const g = old ? clone(old) : newGwDoc(name);
   g.slug = slug; g.name = name; g.kuerzel = kz; g.tide = d.tide || 'prüfen';
-  ['typ', 'lage', 'beschreibung'].forEach(k => { const v = String(d[k] || '').trim(); if (v) g[k] = v; else delete g[k]; });
+  ['typ', 'lage', 'beschreibung'].forEach(k => { const v = trim(d[k]); if (v) g[k] = v; else delete g[k]; });
   g.zielfische = uniq(String(d.zielfische || '').split(',').map(x => x.trim()));
   const oldSpots = new Map((old ? old.spots || [] : []).filter(x => x && typeof x === 'object').map(x => [x.name, x]));
   g.spots = uniq(String(d.spots || '').split('\n').map(x => x.trim())).map(n => oldSpots.get(n) || { name: n });
@@ -1066,7 +1468,7 @@ async function saveGwEditor() {
 }
 async function deleteGw(slug) {
   const g = state.gwMap[slug];
-  if (!g || g._quelle !== 'app' || g._uebertragenAm || state.sessions.some(s => s.gewaesser === slug)) return;
+  if (!g || !isNewGw(g) || state.sessions.some(s => s.gewaesser === slug)) return;
   try { await del('gewaesser', slug); } catch (e) { toast('Löschen fehlgeschlagen.'); return; }
   state.gewaesser = state.gewaesser.filter(x => x.slug !== slug);
   delete state.gwMap[slug];
@@ -1077,8 +1479,10 @@ async function deleteGw(slug) {
 
 /* ---------- Export ins Fangbuch ---------- */
 const SESSION_ORDER = ['id', 'status', 'live', 'quelle', 'datum', 'beginn', 'ende', 'angelzeitMin', 'gewaesser', 'gewaesserName', 'spot', 'angelart', 'zielfisch', 'setup', 'koeder', 'ereignisse', 'beobachtungen', 'umwelt', 'kennzahlen', 'notizen', 'eindruck', 'naechstesMal', 'offeneFragen', 'erstellt', 'aktualisiert', 'getesteteEmpfehlungen', 'appId', 'koordinaten'];
+const SETUP_ORDER = ['setupId', 'kombo', 'hauptschnur', 'vorfach'];
 const KOEDER_ORDER = ['zeit', 'label', 'typ', 'modell', 'farbe', 'groesseCm', 'gewichtG', 'jigkopfG', 'fuehrung', 'schicht'];
-const EVENT_ORDER = ['zeit', 'typ', 'koeder', 'spot', 'tiefeM', 'art', 'laengeCm', 'gewichtG', 'entnommen', 'notiz', 'koordinaten'];
+const MONTAGE_ORDER = ['art', 'bleiG', 'haken', 'hakenAustritt', 'hakenspitze', 'stinger', 'stingerArt', 'stingerPosition', 'notiz'];
+const EVENT_ORDER = ['zeit', 'typ', 'koeder', 'spot', 'tiefeM', 'art', 'laengeCm', 'gewichtG', 'entnommen', 'notiz', 'koordinaten', 'bild'];
 const GW_ORDER = ['name', 'kuerzel', 'typ', 'lage', 'verein', 'tide', 'angelart', 'zielfische', 'fischarten', 'beschreibung', 'regeln', 'spots', 'erkenntnisse', 'hypothesen', 'referenzen', 'aktualisiert'];
 const SPOT_ORDER = ['name', 'beschreibung', 'struktur', 'tiefe', 'grund', 'notiz'];
 const empty = v => v == null || v === '' || (typeof v === 'object' && !Array.isArray(v) && !Object.keys(v).length);
@@ -1092,15 +1496,24 @@ function pick(obj, order, keepEmpty) {
   });
   return o;
 }
-function exportSession(s) {
+function exportKoeder(k) {
+  const o = pick(k, KOEDER_ORDER);
+  if (k.montage && typeof k.montage === 'object') {
+    const m = pick(k.montage, MONTAGE_ORDER);
+    if (Object.keys(m).some(x => x !== 'stinger') || m.stinger) o.montage = m;
+  }
+  return o;
+}
+function exportSession(s, withBild) {
   const x = clone(s);
   x.id = '';
   x.status = 'entwurf'; x.live = false; x.quelle = 'app';
   const sp = spanOf(x);
   x.angelzeitMin = sp && sp.e != null ? Math.max(1, sp.e - sp.b) : undefined;
   x.kennzahlen = kennzahlen(x);
-  x.koeder = (x.koeder || []).map(k => pick(k, KOEDER_ORDER));
-  x.ereignisse = (x.ereignisse || []).map(e => pick(e, EVENT_ORDER, ['entnommen']));
+  if (x.setup) x.setup = pick(x.setup, SETUP_ORDER);
+  x.koeder = (x.koeder || []).map(exportKoeder);
+  x.ereignisse = (x.ereignisse || []).map(e => { const o = pick(e, EVENT_ORDER, ['entnommen']); if (!withBild || !bildId(o.bild)) delete o.bild; return o; });
   x.notizen = (x.notizen || []).map(n => pick(n, ['zeit', 'text']));
   return pick(x, SESSION_ORDER, ['id', 'live', 'koeder', 'ereignisse', 'notizen']);
 }
@@ -1109,21 +1522,34 @@ function exportGw(g) {
   x.spots = (x.spots || []).map(sp => typeof sp === 'string' ? { name: sp } : pick(sp, SPOT_ORDER));
   return pick(x, GW_ORDER, ['zielfische', 'fischarten', 'regeln', 'spots', 'erkenntnisse', 'hypothesen', 'referenzen']);
 }
-function buildExport() {
+function exportSpotsOnly(g) {
+  const names = g._neueSpots || [];
+  const spots = (g.spots || []).filter(sp => names.includes(typeof sp === 'string' ? sp : sp && sp.name)).map(sp => typeof sp === 'string' ? { name: sp } : pick(sp, SPOT_ORDER));
+  return pick({ name: g.name, kuerzel: g.kuerzel, spots }, ['name', 'kuerzel', 'spots']);
+}
+async function buildExport() {
   const sessions = openSessions().slice().sort((a, b) => String(a.datum).localeCompare(String(b.datum)) || String(a.beginn).localeCompare(String(b.beginn)));
-  const gws = openGw();
-  const payload = {
-    format: 'fangbuch-app-export',
-    schemaVersion: 3,
-    exportiert: new Date().toISOString(),
-    sessions: sessions.map(exportSession),
-    gewaesser: Object.fromEntries(gws.map(g => [g.slug, exportGw(g)]))
-  };
-  const json = JSON.stringify(payload, null, 1);
+  const gws = openGw(), sgws = spotGw();
+  const gewaesser = Object.fromEntries(gws.map(g => [g.slug, exportGw(g)]).concat(sgws.map(g => [g.slug, exportSpotsOnly(g)])));
+  const base = { format: 'fangbuch-app-export', schemaVersion: SCHEMA_VERSION, exportiert: new Date().toISOString() };
+  const textPayload = Object.assign({}, base, { sessions: sessions.map(s => exportSession(s, false)), gewaesser });
+  const filePayload = Object.assign({}, base, { sessions: sessions.map(s => exportSession(s, true)), gewaesser });
+  const ids = [];
+  filePayload.sessions.forEach(s => s.ereignisse.forEach(e => { const id = bildId(e.bild); if (id) ids.push(id); }));
+  if (ids.length) {
+    filePayload.bilder = {};
+    for (const id of ids) {
+      const d = await bildData(id);
+      if (d) filePayload.bilder[id] = d;
+      else filePayload.sessions.forEach(s => s.ereignisse.forEach(e => { if (e.bild === 'bild:' + id) delete e.bild; }));
+    }
+    if (!Object.keys(filePayload.bilder).length) delete filePayload.bilder;
+  }
+  const json = JSON.stringify(textPayload, null, 1);
   return {
-    payload, json, text: EXPORT_INTRO + '\n\n' + json,
+    json, text: EXPORT_INTRO + '\n\n' + json, fileJson: JSON.stringify(filePayload, null, 1), bilder: Object.keys(filePayload.bilder || {}).length,
     sessions: sessions.map(s => ({ appId: s.appId, aktualisiert: s.aktualisiert })),
-    gewaesser: gws.map(g => ({ slug: g.slug, aktualisiert: g.aktualisiert }))
+    gewaesser: gws.map(g => ({ slug: g.slug, aktualisiert: g.aktualisiert })).concat(sgws.map(g => ({ slug: g.slug, neueSpots: (g._neueSpots || []).slice() })))
   };
 }
 async function markPending(exp) {
@@ -1137,16 +1563,16 @@ async function shareExport(asFile) {
   const fname = `fangbuch-export-${isoDate(new Date())}.json`;
   try {
     if (asFile) {
-      const file = new File([exp.json], fname, { type: 'application/json' });
+      const file = new File([exp.fileJson], fname, { type: 'application/json' });
       if (navigator.canShare && navigator.canShare({ files: [file] })) await navigator.share({ files: [file], text: EXPORT_INTRO });
-      else { download(exp.json, fname); }
+      else { download(exp.fileJson, fname); }
     } else if (navigator.share) {
       await navigator.share({ text: exp.text });
     } else { await copyText(exp.text); }
     await markPending(exp);
   } catch (e) {
     if (e && e.name === 'AbortError') return;
-    toast('Teilen ging nicht. Nimm „Kopieren“.');
+    toast('Teilen ging nicht. Nimm „Text kopieren“.');
   }
 }
 async function copyExport() {
@@ -1187,8 +1613,14 @@ async function confirmPending(ok) {
     }
     for (const x of p.gewaesser) {
       const g = state.gwMap[x.slug];
-      if (!g || g.aktualisiert !== x.aktualisiert) continue;
-      g._uebertragenAm = now;
+      if (!g) continue;
+      if (x.neueSpots) {
+        g._neueSpots = (g._neueSpots || []).filter(n => !x.neueSpots.includes(n));
+      } else {
+        if (g.aktualisiert !== x.aktualisiert) continue;
+        g._uebertragenAm = now;
+        g._neueSpots = [];
+      }
       await persist('gewaesser', g).catch(() => {});
     }
     toast(changed ? `Übertragen. ${plural(changed, 'Session wurde', 'Sessions wurden')} danach geändert und ${changed === 1 ? 'bleibt' : 'bleiben'} offen.` : 'Als übertragen markiert');
@@ -1202,30 +1634,35 @@ async function confirmPending(ok) {
 }
 function renderUebertragen() {
   let h = pendingCard();
-  const os = openSessions(), og = openGw();
+  const os = openSessions(), og = openGw(), sg = spotGw();
   h += staleCard();
   h += `<div class="card"><h2>An Fangbuch übertragen</h2>`;
-  if (!os.length && !og.length) {
+  if (!os.length && !og.length && !sg.length) {
     h += `<p class="hint">Alles ist übertragen. Neue Sessions erscheinen hier, sobald du sie beendet oder nachgetragen hast.</p>`;
     if (state.live) h += '<p class="hint">Die laufende Live-Session kommt dazu, sobald du sie beendest.</p>';
     $('#main').innerHTML = h + '</div>';
     return;
   }
-  h += `<p class="summary">${plural(os.length, 'Session', 'Sessions')}${og.length ? ' und ' + plural(og.length, 'neues Gewässer', 'neue Gewässer') : ''} warten auf die Übertragung.</p>`;
+  const extra = [og.length ? plural(og.length, 'neues Gewässer', 'neue Gewässer') : '', sg.length ? 'neue Spots an ' + plural(sg.length, 'Gewässer', 'Gewässern') : ''].filter(Boolean).join(' und ');
+  h += `<p class="summary">${plural(os.length, 'Session', 'Sessions')}${extra ? ' sowie ' + extra : ''} warten auf die Übertragung.</p>`;
   h += '<ul class="evlist">' + os.map(s => { const d = parseDate(s.datum); const st = statsOf(s); return `<li><span class="t">${d ? esc(DF_SHORT.format(d).slice(0, 6)) : ''}</span><span>${esc(gwName(s))}${s.spot ? ', ' + esc(s.spot) : ''}: ${st.faenge ? plural(st.faenge, 'Fang', 'Fänge') : st.bisse ? plural(st.bisse, 'Biss', 'Bisse') : 'Nullrunde'}</span></li>`; }).join('')
-    + og.map(g => `<li><span class="t">neu</span><span>Gewässer ${esc(g.name)}</span></li>`).join('') + '</ul>';
+    + og.map(g => `<li><span class="t">neu</span><span>Gewässer ${esc(g.name)}</span></li>`).join('')
+    + sg.map(g => `<li><span class="t">Spots</span><span>${esc(g.name)}: ${esc(g._neueSpots.join(', '))}</span></li>`).join('') + '</ul>';
   if (state.live) h += '<p class="hint" style="margin-top:10px">Die laufende Live-Session ist nicht dabei. Sie kommt beim nächsten Mal mit.</p>';
   if (!state.exp) {
     h += `<div class="stack"><button class="btn big" data-act="exp-build">Export erstellen</button></div>
       <p class="hint" style="margin-top:12px">Danach teilst du den Text in die Claude-App oder kopierst ihn ins Projekt „Angeln“. Claude übernimmt die Sessions dort ins Fangbuch und ergänzt Wetter, Luftdruck, Sonne, Mond und Tide.</p>`;
   } else {
+    const nb = state.exp.bilder;
     h += `<div class="stack">
-        ${navigator.share ? '<button class="btn big" data-act="exp-share">Teilen</button>' : ''}
-        <button class="btn ${navigator.share ? 'ghost ' : ''}wide" data-act="exp-copy">Kopieren</button>
-        <button class="btn ghost wide" data-act="exp-file">Als Datei teilen</button>
+        ${nb ? '<button class="btn big" data-act="exp-file">Als Datei mit Screenshots teilen</button>' : ''}
+        ${navigator.share ? `<button class="btn ${nb ? 'ghost wide' : 'big'}" data-act="exp-share">Als Text teilen</button>` : ''}
+        <button class="btn ghost wide" data-act="exp-copy">Text kopieren</button>
+        ${nb ? '' : '<button class="btn ghost wide" data-act="exp-file">Als Datei teilen</button>'}
       </div>
-      <p class="hint" style="margin-top:12px">So geht es: Im Teilen-Menü die Claude-App wählen, das Projekt „Angeln“ öffnen und senden. Oder kopieren und dort in einen Chat einfügen. Danach fragt die App, ob alles angekommen ist.</p>
-      <label class="fld"><span>Vorschau</span><textarea class="exportbox" id="exporttext" readonly>${esc(state.exp.text)}</textarea></label>`;
+      ${nb ? `<p class="hint" style="margin-top:12px">${plural(nb, 'Screenshot geht', 'Screenshots gehen')} nur mit der Datei mit. Teil die Datei in die Claude-App ins Projekt „Angeln“ und schreib dazu: „${esc(EXPORT_INTRO)}“. Der Text enthält alles andere, aber keine Bilder.</p>`
+        : '<p class="hint" style="margin-top:12px">So geht es: Im Teilen-Menü die Claude-App wählen, das Projekt „Angeln“ öffnen und senden. Oder kopieren und dort in einen Chat einfügen. Danach fragt die App, ob alles angekommen ist.</p>'}
+      <label class="fld"><span>Vorschau (Text)</span><textarea class="exportbox" id="exporttext" readonly>${esc(state.exp.text)}</textarea></label>`;
   }
   $('#main').innerHTML = h + '</div>';
 }
@@ -1249,6 +1686,30 @@ function asMap(v, keyField) {
   }
   return typeof v === 'object' ? v : {};
 }
+// Gewässer aus dem Fangbuch mit dem lokalen Stand zusammenführen: Angaben aus dem Import gewinnen,
+// in der App angelegte Spots bleiben erhalten und gehen beim nächsten Übertragen mit.
+function mergeGw(local, incoming, slug, now) {
+  const base = local ? Object.fromEntries(Object.entries(local).filter(([k]) => !k.startsWith('_'))) : {};
+  const g = Object.assign(base, incoming, { slug, _quelle: 'import', _importiertAm: now, _uebertragenAm: null });
+  delete g._id;
+  if (!g.name) g.name = slug;
+  if (local && Array.isArray(incoming.spots)) {
+    const inNames = new Set(spotNames(incoming));
+    const extra = (local.spots || []).filter(sp => { const n = typeof sp === 'string' ? sp : sp && sp.name; return n && !inNames.has(n); });
+    g.spots = incoming.spots.concat(extra);
+    const wasNew = isNewGw(local);
+    g._neueSpots = extra.map(sp => typeof sp === 'string' ? sp : sp.name).filter(n => wasNew || (local._neueSpots || []).includes(n));
+  } else if (local) {
+    g._neueSpots = isNewGw(local) ? spotNames(local) : (local._neueSpots || []);
+  }
+  return g;
+}
+function cleanSetup(x) {
+  const o = { id: x.id, name: trim(x.name) || x.id };
+  ['rute', 'rolle', 'hauptschnur', 'vorfach'].forEach(k => { const v = trim(x[k]); if (v) o[k] = v; });
+  o.aktiv = x.aktiv !== false;
+  return o;
+}
 async function importData(text) {
   let data;
   try { data = parseJsonLoose(text); }
@@ -1257,12 +1718,12 @@ async function importData(text) {
   if (data && data.format === 'fangbuch-app-export') { state.importMsg = { err: true, text: 'Das ist ein Export aus dieser App. Der gehört ins Projekt „Angeln“, nicht hierher.' }; renderView(); return; }
   const gws = asMap(data && data.gewaesser, 'slug');
   const emps = asMap(data && data.empfehlungen, 'id');
+  const setups = Array.isArray(data && data.setups) ? data.setups.filter(x => x && typeof x === 'object' && (x.id || x.name)) : [];
   const gKeys = Object.keys(gws).filter(k => gws[k] && typeof gws[k] === 'object');
   const eKeys = Object.keys(emps).filter(k => emps[k] && typeof emps[k] === 'object');
-  if (!gKeys.length && !eKeys.length) { state.importMsg = { err: true, text: 'Keine Gewässer oder Vorschläge gefunden. Erwartet wird {"gewaesser": {...}, "empfehlungen": {...}}.' }; renderView(); return; }
+  if (!gKeys.length && !eKeys.length && !setups.length) { state.importMsg = { err: true, text: 'Keine Gewässer, Vorschläge oder Setups gefunden. Erwartet wird {"gewaesser": {...}, "empfehlungen": {...}}.' }; renderView(); return; }
   const now = new Date().toISOString();
-  const gDocs = gKeys.map(k => Object.assign({}, gws[k], { slug: slugify(k) || k, _quelle: 'import', _importiertAm: now, _uebertragenAm: null }));
-  gDocs.forEach(g => { delete g._id; if (!g.name) g.name = g.slug; });
+  const gDocs = gKeys.map(k => { const slug = slugify(k) || k; return mergeGw(state.gwMap[slug], gws[k], slug, now); });
   const eDocs = eKeys.map(k => Object.assign({}, emps[k], { id: k, _importiertAm: now }));
   eDocs.forEach(e => delete e._id);
   try {
@@ -1275,26 +1736,33 @@ async function importData(text) {
   const em = new Map(state.empfehlungen.map(e => [e.id, e]));
   eDocs.forEach(e => em.set(e.id, e));
   state.empfehlungen = Array.from(em.values());
+  if (setups.length) {
+    const map = new Map((state.settings.setups || []).map(x => [x.id, x]));
+    setups.forEach(x => { const id = x.id || slugify(x.name); map.set(id, cleanSetup(Object.assign({}, x, { id }))); });
+    state.settings.setups = Array.from(map.values());
+    await saveSettings();
+  }
   state.importText = '';
   defaultForm();
   const open = eDocs.filter(isActiveV).length;
-  state.importMsg = { err: false, text: `Übernommen: ${plural(gDocs.length, 'Gewässer', 'Gewässer')} und ${plural(eDocs.length, 'Vorschlag', 'Vorschläge')}${eDocs.length ? ', davon ' + open + ' offen oder im Test' : ''}. Sie stehen jetzt auch offline bereit.` };
+  const parts = [gDocs.length ? plural(gDocs.length, 'Gewässer', 'Gewässer') : '', eDocs.length ? plural(eDocs.length, 'Vorschlag', 'Vorschläge') + ', davon ' + open + ' offen oder im Test' : '', setups.length ? plural(setups.length, 'Setup', 'Setups') : ''].filter(Boolean);
+  state.importMsg = { err: false, text: `Übernommen: ${parts.join(', ')}. Alles steht jetzt auch offline bereit.` };
   renderAll();
 }
 async function readFile(input) {
   const f = input.files && input.files[0];
   input.value = '';
   if (!f) return null;
-  if (f.size > 20 * 1024 * 1024) { toast('Die Datei ist zu groß.'); return null; }
+  if (f.size > 200 * 1024 * 1024) { toast('Die Datei ist zu groß.'); return null; }
   try { return await f.text(); } catch (e) { toast('Datei konnte nicht gelesen werden.'); return null; }
 }
 
 /* ---------- Datensicherung ---------- */
 async function backup() {
   const data = {
-    format: 'fangbuch-app-backup', version: 1, erstellt: new Date().toISOString(),
+    format: 'fangbuch-app-backup', version: 2, erstellt: new Date().toISOString(),
     sessions: await getAll('sessions'), gewaesser: await getAll('gewaesser'), empfehlungen: await getAll('empfehlungen'),
-    meta: (await getAll('meta')).filter(m => m.key !== 'lastBackup')
+    meta: (await getAll('meta')).filter(m => m.key !== 'lastBackup'), bilder: await getAll('bilder')
   };
   const json = JSON.stringify(data);
   const fname = `fangbuch-sicherung-${isoDate(new Date())}.json`;
@@ -1329,44 +1797,76 @@ async function doRestore() {
       okArr(d.gewaesser, 'slug').forEach(x => t.objectStore('gewaesser').put(x));
       okArr(d.empfehlungen, 'id').forEach(x => t.objectStore('empfehlungen').put(x));
       okArr(d.meta, 'key').forEach(x => t.objectStore('meta').put(x));
+      okArr(d.bilder, 'id').forEach(x => t.objectStore('bilder').put(x));
       if (d.erstellt) t.objectStore('meta').put({ key: 'lastBackup', value: d.erstellt });
     });
   } catch (e) { toast('Wiederherstellen fehlgeschlagen. Deine bisherigen Daten sind unverändert.'); return; }
   state.restore = null;
   stopTimer(); wakeOff();
-  state.live = null; state.edit = null; state.exp = null;
+  state.live = null; state.edit = null; state.exp = null; state.bildCache.clear();
   await loadAll();
   toast('Sicherung wiederhergestellt');
   renderAll();
 }
 
 /* ---------- Ansicht: Daten ---------- */
+function setupsCard() {
+  const S = state.settings;
+  const E = state.setupEdit;
+  let h = `<div class="card"><h2>Setups</h2><p class="hint">Rute, Rolle und Schnur. Beim Start einer Session wählst du ein Setup, die App merkt sich pro Gewässer das zuletzt genutzte. Inaktive Setups erscheinen nicht mehr in der Auswahl.</p>`;
+  if (E) {
+    const d = E.d;
+    h += `<div class="erow">${textFld('s', 'name', d.name, 'Name', ' placeholder="z. B. Spinnrute leicht"')}
+      ${textFld('s', 'rute', d.rute, 'Rute')}${textFld('s', 'rolle', d.rolle, 'Rolle')}
+      ${textFld('s', 'hauptschnur', d.hauptschnur, 'Hauptschnur', ' placeholder="z. B. geflochten, 9 kg"')}
+      ${textFld('s', 'vorfach', d.vorfach, 'Vorfach (Vorbelegung)', ' placeholder="z. B. Fluoro 0,40 mm, 60 cm"')}
+      <label class="check"><input type="checkbox" ${bind('s', 'aktiv')}${d.aktiv !== false ? ' checked' : ''}> Aktiv</label>
+      ${E.err ? `<p class="catch">${esc(E.err)}</p>` : ''}
+      <div class="row"><button class="btn" data-act="setup-save">Speichern</button><button class="btn ghost" data-act="setup-cancel">Abbrechen</button>${E.orig ? '<button class="linkbtn" data-act="setup-del">Löschen</button>' : ''}</div></div>`;
+  }
+  const list = S.setups || [];
+  h += list.length ? list.map(x => `<div class="settingrow"><div><b>${esc(x.name)}</b>${x.aktiv === false ? ' <span class="badge">inaktiv</span>' : ''}<p class="smeta">${esc([[x.rute, x.rolle].filter(Boolean).join(' + '), x.hauptschnur, x.vorfach ? 'Vorfach ' + x.vorfach : ''].filter(Boolean).join(', '))}</p></div><button class="btn ghost small" data-act="setup-edit" data-id="${esc(x.id)}">Bearbeiten</button></div>`).join('')
+    : '<p class="hint">Noch keine Setups. Leg sie hier an oder importier deine Startdaten.</p>';
+  if (!E) h += '<div class="row" style="margin-top:12px"><button class="btn ghost small" data-act="setup-new">Setup hinzufügen</button></div>';
+  return h + '</div>';
+}
+function chipList(key, title, hint) {
+  const vals = state.settings[key] || [];
+  return `<div class="settingblock"><b>${title}</b><p class="smeta">${hint}</p>
+    <div class="chips">${vals.length ? vals.map(v => `<span class="chip">${esc(v)}<button type="button" data-act="list-del" data-key="${key}" data-v="${esc(v)}" aria-label="${esc(v)} entfernen">×</button></span>`).join('') : '<span class="smeta">Keine eigenen Einträge.</span>'}</div>
+    <div class="row"><input id="add-${key}" value="${esc(state.listAdd[key])}" placeholder="Neuer Eintrag" autocomplete="off"><button class="btn ghost small" data-act="list-add" data-key="${key}">Hinzufügen</button></div></div>`;
+}
 function renderDaten() {
   const S = state.settings;
   const M = state.importMsg;
   let h = `<div class="card"><h2>Import aus dem Fangbuch</h2>
-    <p class="hint">Schreib im Projekt „Angeln“: „Exportier meine Gewässer und Vorschläge für die Fangbuch-App.“ Claude liefert ein JSON. Füg es hier ein oder wähl die Datei. Danach stehen Gewässer und Spots im Startformular und die offenen Vorschläge während der Session bereit, auch offline.</p>
+    <p class="hint">Schreib im Projekt „Angeln“: „Exportier meine Gewässer und Vorschläge für die Fangbuch-App.“ Claude liefert ein JSON. Füg es hier ein oder wähl die Datei. Danach stehen Gewässer und Spots im Startformular und die offenen Vorschläge während der Session bereit, auch offline. Auf demselben Weg importierst du deine Startdaten mit Setups und Spots.</p>
     <label class="fld"><span>JSON einfügen</span><textarea class="exportbox" id="imp-text" rows="6" placeholder='{"gewaesser": {...}, "empfehlungen": {...}}'>${esc(state.importText)}</textarea></label>
     <div class="row"><button class="btn" data-act="imp-text">Importieren</button><label class="btn ghost filelabel">Datei wählen<input type="file" id="imp-file" accept=".json,.txt,application/json,text/plain"></label></div>
     ${M ? `<div class="note-card ${M.err ? 'warn' : 'done'}" role="status"><p>${esc(M.text)}</p></div>` : ''}
-    <p class="hint" style="margin-top:12px">Auf dem Handy: ${plural(state.gewaesser.length, 'Gewässer', 'Gewässer')}, ${plural(state.empfehlungen.length, 'Vorschlag', 'Vorschläge')}.</p>
+    <p class="hint" style="margin-top:12px">Auf dem Handy: ${plural(state.gewaesser.length, 'Gewässer', 'Gewässer')}, ${plural(state.empfehlungen.length, 'Vorschlag', 'Vorschläge')}, ${plural((S.setups || []).length, 'Setup', 'Setups')}.</p>
+  </div>`;
+  h += setupsCard();
+  h += `<div class="card"><h2>Eigene Listen</h2>
+    ${chipList('typen', 'Eigene Ködertypen', 'Kommen dazu, wenn du beim Ködertyp „Eigener Typ …“ wählst.')}
+    ${chipList('montagen', 'Eigene Montagen', 'Kommen dazu, wenn du bei der Montage „Eigene Montage …“ wählst.')}
   </div>`;
   const lb = state.lastBackup ? new Date(state.lastBackup) : null;
   h += `<div class="card"><h2>Datensicherung</h2>
-    <p class="hint">Sichert alle Daten der App in eine Datei: Sessions, Gewässer, Vorschläge und Einstellungen. Speicher sie in iCloud Drive oder „Dateien“. Mit der Datei holst du alles zurück, etwa auf einem neuen Handy.</p>
+    <p class="hint">Sichert alle Daten der App in eine Datei: Sessions, Screenshots, Gewässer, Vorschläge und Einstellungen. Speicher sie in iCloud Drive oder „Dateien“. Mit der Datei holst du alles zurück, etwa auf einem neuen Handy.</p>
     <p>${lb ? 'Letzte Sicherung: ' + esc(DF_TS.format(lb)) : 'Noch keine Sicherung erstellt.'}</p>
     <div class="row"><button class="btn" data-act="backup">Sicherung erstellen</button><label class="btn ghost filelabel">Sicherung wiederherstellen<input type="file" id="restore-file" accept=".json,application/json"></label></div>`;
   if (state.restore) {
     const r = state.restore;
     h += `<div class="note-card warn"><h2>Sicherung wiederherstellen?</h2>
-      <p>Sicherung vom ${esc(r.erstellt ? DF_TS.format(new Date(r.erstellt)) : 'unbekannten Datum')}: ${plural(r.sessions.length, 'Session', 'Sessions')}, ${plural((r.gewaesser || []).length, 'Gewässer', 'Gewässer')}, ${plural((r.empfehlungen || []).length, 'Vorschlag', 'Vorschläge')}.</p>
+      <p>Sicherung vom ${esc(r.erstellt ? DF_TS.format(new Date(r.erstellt)) : 'unbekannten Datum')}: ${plural(r.sessions.length, 'Session', 'Sessions')}, ${plural((r.gewaesser || []).length, 'Gewässer', 'Gewässer')}, ${plural((r.empfehlungen || []).length, 'Vorschlag', 'Vorschläge')}, ${plural((r.bilder || []).length, 'Screenshot', 'Screenshots')}.</p>
       <p><b>Alle Daten auf diesem Handy werden dabei ersetzt.</b>${state.live ? ' Die laufende Live-Session geht verloren.' : ''}</p>
       <div class="row"><button class="btn danger" data-act="restore-yes">Ja, ersetzen</button><button class="btn ghost" data-act="restore-no">Abbrechen</button></div></div>`;
   }
   h += '</div>';
   const sp = S.sunPos;
   h += `<div class="card"><h2>Einstellungen</h2>
-    <div class="settingrow"><div><b>GPS-Position speichern</b><p class="smeta">Beim Start einer Live-Session und bei jedem Fang. Die Position geht nur über den Export ins Fangbuch.</p></div><input type="checkbox" class="switch" id="set-gps" aria-label="GPS-Position speichern"${S.gps ? ' checked' : ''}></div>
+    <div class="settingrow"><div><b>GPS-Position automatisch speichern</b><p class="smeta">Beim Start einer Live-Session und bei jedem Fang. Unabhängig davon kannst du bei jedem Eintrag „Position übernehmen“ tippen. Die Position geht nur über den Export ins Fangbuch.</p></div><input type="checkbox" class="switch" id="set-gps" aria-label="GPS-Position automatisch speichern"${S.gps ? ' checked' : ''}></div>
     <div class="settingrow"><div><b>Ort für die Dämmerung</b><p class="smeta">${sp ? 'Gespeichert: ' + esc(NF1.format(sp.lat)) + ', ' + esc(NF1.format(sp.lon)) : 'Nicht gesetzt. Die App rechnet mit der Mitte Deutschlands, außer eine Session hat GPS-Daten.'}</p></div><button class="btn ghost small" data-act="sunpos">${sp ? 'Neu bestimmen' : 'Festlegen'}</button></div>
   </div>`;
   h += `<div class="card"><h2>Über die App</h2><p class="hint">Alle Daten liegen nur auf diesem Handy, im Speicher dieser Web-App. Nichts verlässt das Handy außer über „Übertragen“ und „Sicherung“. Auf dem iPhone haben Safari und die App auf dem Home-Bildschirm getrennte Speicher: Nutze immer die App vom Home-Bildschirm.</p>
@@ -1377,13 +1877,13 @@ function renderDaten() {
 async function storageInfo() {
   const el = $('#storage-info');
   if (!el || !navigator.storage) return;
-  const parts = [];
+  const parts = ['Datenformat ' + SCHEMA_VERSION];
   try { if (navigator.storage.persisted) parts.push(await navigator.storage.persisted() ? 'Speicher dauerhaft geschützt' : 'Speicher nicht dauerhaft geschützt'); } catch (e) { /* egal */ }
   try { if (navigator.storage.estimate) { const e = await navigator.storage.estimate(); if (e.usage != null) parts.push(NF1.format(e.usage / 1024 / 1024) + ' MB belegt'); } } catch (e) { /* egal */ }
   parts.push(navigator.serviceWorker && navigator.serviceWorker.controller ? 'offline bereit' : 'noch nicht offline bereit');
   if ($('#storage-info')) $('#storage-info').textContent = parts.join(', ');
 }
-async function saveSettings() { try { await putMeta('settings', state.settings); } catch (e) { /* toast kommt aus persist nicht */ toast('Einstellung nicht gespeichert.'); } }
+async function saveSettings() { try { await putMeta('settings', state.settings); } catch (e) { toast('Einstellung nicht gespeichert.'); } }
 function setSunPos() {
   if (!navigator.geolocation) { toast('Standort ist auf diesem Gerät nicht verfügbar.'); return; }
   toast('Standort wird bestimmt …');
@@ -1393,6 +1893,38 @@ function setSunPos() {
     toast('Ort für die Dämmerung gespeichert');
     renderView();
   }, () => toast('Standort nicht verfügbar. Erlaube den Zugriff in den Einstellungen des Handys.'), { timeout: 20000, maximumAge: 600000 });
+}
+function openSetupEditor(id) {
+  const x = id ? setupById(id) : null;
+  state.setupEdit = { orig: x ? x.id : null, err: '', d: x ? Object.assign({ rute: '', rolle: '', hauptschnur: '', vorfach: '' }, clone(x)) : { name: '', rute: '', rolle: '', hauptschnur: '', vorfach: '', aktiv: true } };
+  renderView();
+}
+async function saveSetupEditor() {
+  const E = state.setupEdit, d = E.d;
+  if (!trim(d.name)) { E.err = 'Trag einen Namen ein.'; renderView(); return; }
+  let id = E.orig;
+  if (!id) {
+    const base = slugify(d.name) || 'setup';
+    id = base;
+    for (let i = 2; setupById(id); i++) id = base + '-' + i;
+  }
+  const x = cleanSetup(Object.assign({}, d, { id }));
+  const all = state.settings.setups || [];
+  const idx = all.findIndex(s => s.id === id);
+  state.settings.setups = idx >= 0 ? all.map(s => s.id === id ? x : s) : all.concat(x);
+  await saveSettings();
+  state.setupEdit = null;
+  toast('Setup gespeichert');
+  renderView();
+}
+async function deleteSetup() {
+  const E = state.setupEdit;
+  if (!E || !E.orig) return;
+  state.settings.setups = (state.settings.setups || []).filter(s => s.id !== E.orig);
+  await saveSettings();
+  state.setupEdit = null;
+  toast('Setup gelöscht. Gespeicherte Sessions behalten ihre Angaben.');
+  renderView();
 }
 
 /* ---------- Detailansichten ---------- */
@@ -1427,13 +1959,17 @@ function sessionSheet(s) {
     h += sec('Bisse und Fänge', '<ul class="evlist">' + evs.map(({ ev }) => {
       const det = [ev.art, lenText(ev),
         ev.typ === 'fang' && ev.entnommen === true ? 'entnommen' : ev.typ === 'fang' && ev.entnommen === false ? 'zurückgesetzt' : '',
-        ev.koeder ? 'Köder: ' + ev.koeder : '', ev.spot && ev.spot !== s.spot ? 'Spot: ' + ev.spot : '', ev.notiz,
-        ev.koordinaten ? 'GPS' : ''].filter(Boolean).join(', ');
-      return `<li><span class="t">${esc(ev.zeit || '')}</span><span><b class="ty ${TYP[ev.typ] ? ev.typ : ''}">${esc(TYP[ev.typ] || ev.typ || 'Ereignis')}</b>${det ? ' ' + esc(det) : ''}</span></li>`;
+        ev.koeder ? 'Köder: ' + ev.koeder : '', ev.spot && ev.spot !== s.spot ? 'Spot: ' + ev.spot : '',
+        num(ev.tiefeM) != null ? 'Tiefe ' + NF1.format(num(ev.tiefeM)) + ' m' : '', ev.notiz,
+        ev.koordinaten ? 'Position ' + ev.koordinaten.lat + ', ' + ev.koordinaten.lon : ''].filter(Boolean).join(', ');
+      const id = bildId(ev.bild);
+      return `<li><span class="t">${esc(ev.zeit || '')}</span><span><b class="ty ${TYP[ev.typ] ? ev.typ : ''}">${esc(TYP[ev.typ] || ev.typ || 'Ereignis')}</b>${det ? ' ' + esc(det) : ''}${id ? '<br>' + thumb(id) : ''}</span></li>`;
     }).join('') + '</ul>');
   }
   const ks = Array.isArray(s.koeder) ? s.koeder : [];
-  if (ks.length) h += sec('Köder', '<ul class="evlist">' + ks.map(k => `<li><span class="t">${esc((k && k.zeit) || '')}</span><span>${esc(koederText(k))}</span></li>`).join('') + '</ul>');
+  if (ks.length) h += sec('Köder', '<ul class="evlist">' + ks.map(k => `<li><span class="t">${esc((k && k.zeit) || '')}</span><span>${esc(koederText(k))}${koederExtra(k) ? '<span class="smeta">, ' + esc(koederExtra(k)) + '</span>' : ''}</span></li>`).join('') + '</ul>');
+  const su = s.setup || {};
+  h += sec('Setup', kv([['Setup', su.setupId && setupById(su.setupId) ? setupById(su.setupId).name : su.setupId], ['Kombo', su.kombo], ['Hauptschnur', su.hauptschnur], ['Vorfach', su.vorfach]]));
   h += sec('Beobachtungen am Wasser', kv([['Wassertemperatur', Bo.wassertemp != null ? NF1.format(Bo.wassertemp) + ' °C' : null], ['Sichttiefe', Bo.sichttiefe != null ? NF1.format(Bo.sichttiefe) + ' cm' : null]]));
   h += sec('Eindruck', s.eindruck ? `<p>${esc(s.eindruck)}</p>` : '');
   h += sec('Beim nächsten Mal testen', s.naechstesMal ? `<p>${esc(s.naechstesMal)}</p>` : '');
@@ -1445,8 +1981,10 @@ function sessionSheet(s) {
 function gwSheet(g) {
   const st = gwStats(g.slug);
   let h = sheetHead(esc(g.name || g.slug), esc([g.typ, g.lage].filter(Boolean).join(', '))) + '<div class="sheet-body">';
-  if (g._quelle === 'app' && !g._uebertragenAm) {
+  if (isNewGw(g)) {
     h += `<p class="hint" style="margin-top:12px">In der App angelegt, noch nicht im Fangbuch.</p><div class="row"><button class="btn" data-act="gw-edit" data-id="${esc(g.slug)}">Bearbeiten</button>${st.n ? '' : `<button class="btn ghost" data-act="gw-del" data-id="${esc(g.slug)}">Löschen</button>`}</div>`;
+  } else if ((g._neueSpots || []).length) {
+    h += `<p class="hint" style="margin-top:12px">Neue Spots aus der App, noch nicht im Fangbuch: ${esc(g._neueSpots.join(', '))}.</p>`;
   }
   h += sec('Stammdaten', kv([['Kürzel', g.kuerzel], ['Typ', g.typ], ['Lage', g.lage], ['Erlaubnis', g.verein], ['Tide', g.tide], ['Angelart', g.angelart], ['Zielfische', g.zielfische], ['Fischarten', g.fischarten]]));
   if (g.beschreibung) h += sec('Beschreibung', `<p>${esc(fmtAny(g.beschreibung))}</p>`);
@@ -1485,6 +2023,8 @@ function refreshSheet() {
   if (o.kind === 'session') {
     const s = state.sessions.find(x => x.appId === o.id);
     html = s ? sessionSheet(s) : sheetHead('Nicht gefunden', '') + '<div class="sheet-body"><p>Diese Session gibt es nicht mehr.</p></div>';
+  } else if (o.kind === 'bild') {
+    html = sheetHead('Screenshot', '') + `<div class="sheet-body"><img class="bigimg" data-bild="${esc(o.id)}" alt="Screenshot"></div>`;
   } else {
     const g = state.gwMap[o.id];
     html = g ? gwSheet(g) : sheetHead('Nicht gefunden', '') + '<div class="sheet-body"><p>Dieses Gewässer gibt es nicht mehr.</p></div>';
@@ -1493,6 +2033,7 @@ function refreshSheet() {
   const top = dlg.scrollTop;
   $('#sheet-inner').innerHTML = html;
   dlg.scrollTop = top;
+  fillThumbs($('#sheet-inner'));
 }
 function openSheet(kind, id) {
   const switching = !state.open || state.open.kind !== kind || state.open.id !== id;
@@ -1511,9 +2052,10 @@ function renderView() {
     return;
   }
   if (!state.ready) { m.innerHTML = '<p class="loading">Wird geladen …</p>'; return; }
-  if (state.edit && state.edit.kind === 'session' && state.view === 'sessions') { m.innerHTML = sessionEditor(); return; }
-  if (state.edit && state.edit.kind === 'gw' && state.view === 'gewaesser') { m.innerHTML = gwEditor(); return; }
-  ({ sessions: renderSessions, gewaesser: renderGewaesser, uebertragen: renderUebertragen, daten: renderDaten, live: renderLive })[state.view]();
+  if (state.edit && state.edit.kind === 'session' && state.view === 'sessions') m.innerHTML = sessionEditor();
+  else if (state.edit && state.edit.kind === 'gw' && state.view === 'gewaesser') m.innerHTML = gwEditor();
+  else ({ sessions: renderSessions, gewaesser: renderGewaesser, uebertragen: renderUebertragen, daten: renderDaten, live: renderLive })[state.view]();
+  fillThumbs(m);
 }
 function renderAll() {
   renderLede();
@@ -1527,7 +2069,7 @@ function go(v) {
   if (state.edit && !((state.edit.kind === 'session' && v === 'sessions') || (state.edit.kind === 'gw' && v === 'gewaesser'))) state.edit = null;
   else if (state.edit && v === state.view) state.edit = null;
   state.view = v;
-  if (v !== 'daten') { state.importMsg = null; state.restore = null; }
+  if (v !== 'daten') { state.importMsg = null; state.restore = null; state.setupEdit = null; }
   if (v !== 'uebertragen') state.exp = null;
   if ($('#sheet').open) $('#sheet').close();
   try { history.replaceState(null, '', '#' + v); } catch (e) { /* egal */ }
@@ -1536,16 +2078,35 @@ function go(v) {
 }
 function defaultForm() {
   const F = state.form;
-  if (F.gw === '__neu' && F.gwNeu) return;
+  if (F.gw === NEU && F.gwNeu) return;
   if (state.gwMap[F.gw]) return;
   const last = lsGet('fangbuch-gw');
-  F.gw = last && state.gwMap[last] ? last : (state.gewaesser[0] ? state.gewaesser[0].slug : '__neu');
-  const g = state.gwMap[F.gw];
-  if (g && Array.isArray(g.zielfische) && g.zielfische[0]) F.ziel = g.zielfische[0];
-  if (g && /watend/i.test(String(g.angelart || ''))) F.art = 'Watend';
+  F.gw = last && state.gwMap[last] ? last : (state.gewaesser[0] ? state.gewaesser[0].slug : NEU);
+  applyGwDefaults(F);
 }
 
 /* ---------- Ereignisse ---------- */
+async function onPos(r, p) {
+  if (!navigator.geolocation) { toast('Standort ist auf diesem Gerät nicht verfügbar.'); return; }
+  toast('Position wird bestimmt …');
+  const pos = await getPos(true);
+  if (!pos) { toast('Keine Position. Erlaube den Standortzugriff in den Einstellungen des Handys.'); return; }
+  evTargets(r, p).forEach(o => { o.koordinaten = pos; });
+  toast('Position übernommen');
+  afterEvTargetChange(r);
+}
+async function onBild(input) {
+  const f = input.files && input.files[0];
+  const r = input.dataset.bildR, p = input.dataset.bildP;
+  input.value = '';
+  if (!f) return;
+  toast('Screenshot wird gespeichert …');
+  let id;
+  try { id = await storeImage(f); } catch (e) { toast('Das Bild konnte nicht gelesen werden.'); return; }
+  evTargets(r, p).forEach(o => { o.bild = 'bild:' + id; });
+  toast('Screenshot angehängt');
+  afterEvTargetChange(r);
+}
 document.addEventListener('click', e => {
   const t = e.target.closest('[data-view],[data-go],[data-act],[data-sid],[data-gid]');
   if (!t) return;
@@ -1554,9 +2115,13 @@ document.addEventListener('click', e => {
   if (t.dataset.act) {
     const a = t.dataset.act;
     if (a === 'ev') addEvent(t.dataset.typ);
-    else if (a === 'fe-save') saveFang();
-    else if (a === 'fe-close') { state.fangEdit = null; renderView(); }
-    else if (a === 'fe-open') { state.fangEdit = +t.dataset.i; renderView(); const fe = $('#fangedit'); if (fe) fe.scrollIntoView({ block: 'center' }); }
+    else if (a === 'ev-save') saveEv();
+    else if (a === 'ev-close') { state.evEdit = null; state.form.evd = null; renderView(); }
+    else if (a === 'ev-open') { openEvEditor(+t.dataset.i); renderView(); const fe = $('#evedit'); if (fe) fe.scrollIntoView({ block: 'center' }); }
+    else if (a === 'pos') onPos(t.dataset.r, t.dataset.p);
+    else if (a === 'pos-del') { evTargets(t.dataset.r, t.dataset.p).forEach(o => { delete o.koordinaten; }); afterEvTargetChange(t.dataset.r); }
+    else if (a === 'bild-del') { evTargets(t.dataset.r, t.dataset.p).forEach(o => { delete o.bild; }); afterEvTargetChange(t.dataset.r); }
+    else if (a === 'bild-show') openSheet('bild', t.dataset.id);
     else if (a === 'undo') undo();
     else if (a === 'koeder') changeKoeder();
     else if (a === 'note') addNote();
@@ -1577,7 +2142,7 @@ document.addEventListener('click', e => {
     else if (a === 'gw-edit') openGwEditor(state.gwMap[t.dataset.id]);
     else if (a === 'gw-save') saveGwEditor();
     else if (a === 'gw-del') deleteGw(t.dataset.id);
-    else if (a === 'exp-build') { state.exp = buildExport(); renderView(); }
+    else if (a === 'exp-build') { buildExport().then(x => { state.exp = x; renderView(); }).catch(() => toast('Export fehlgeschlagen.')); }
     else if (a === 'exp-share') shareExport(false);
     else if (a === 'exp-file') shareExport(true);
     else if (a === 'exp-copy') copyExport();
@@ -1588,6 +2153,16 @@ document.addEventListener('click', e => {
     else if (a === 'restore-yes') doRestore();
     else if (a === 'restore-no') { state.restore = null; renderView(); }
     else if (a === 'sunpos') setSunPos();
+    else if (a === 'setup-new') openSetupEditor(null);
+    else if (a === 'setup-edit') openSetupEditor(t.dataset.id);
+    else if (a === 'setup-save') saveSetupEditor();
+    else if (a === 'setup-cancel') { state.setupEdit = null; renderView(); }
+    else if (a === 'setup-del') deleteSetup();
+    else if (a === 'list-add') {
+      const k = t.dataset.key, v = trim(state.listAdd[k]);
+      if (v) { addCustom(k, v); state.listAdd[k] = ''; renderView(); }
+    }
+    else if (a === 'list-del') { const k = t.dataset.key; state.settings[k] = (state.settings[k] || []).filter(x => x !== t.dataset.v); saveSettings(); renderView(); }
     else if (a === 'sw-update') { if (state.swWaiting) state.swWaiting.postMessage('skipWaiting'); }
     return;
   }
@@ -1596,37 +2171,38 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('keydown', e => {
   if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('[role="button"]')) { e.preventDefault(); e.target.click(); }
-  if (e.key === 'Enter' && e.target.id === 'k-neu') { e.preventDefault(); changeKoeder(); }
 });
-function bindEditor(el) {
-  if (!state.edit || !el.dataset.b) return false;
-  const v = el.type === 'checkbox' ? el.checked : el.value;
-  setPath(state.edit.d, el.dataset.b, v);
-  return true;
+function bindValue(el) {
+  const root = rootOf(el.dataset.r);
+  if (!root || !el.dataset.b) return null;
+  setPath(root, el.dataset.b, el.type === 'checkbox' ? el.checked : el.value);
+  return root;
 }
 document.addEventListener('input', e => {
   const el = e.target;
-  if (el.dataset && el.dataset.b && el.tagName !== 'SELECT' && el.type !== 'checkbox') { bindEditor(el); return; }
-  if (el.form && el.form.id === 'startform' && el.name) state.form[el.name] = el.value;
-  if (el.id === 'k-neu') state.form.koederNeu = el.value;
-  if (el.id === 'n-neu') state.form.note = el.value;
+  if (el.dataset && el.dataset.b && el.tagName !== 'SELECT' && el.type !== 'checkbox') {
+    const root = bindValue(el);
+    if (root && el.dataset.manualk) { const ev = getPath(root, el.dataset.b.replace(/\.koeder$/, '')); if (ev) ev._autoK = false; }
+    return;
+  }
   if (el.id === 'imp-text') state.importText = el.value;
+  if (el.id && el.id.startsWith('add-')) state.listAdd[el.id.slice(4)] = el.value;
 });
 document.addEventListener('change', async e => {
   const el = e.target;
+  if (el.dataset && el.dataset.bildR) { onBild(el); return; }
   if (el.dataset && el.dataset.b) {
-    bindEditor(el);
-    if (el.dataset.rerender) {
-      if (el.dataset.b === 'gewaesser') {
-        const g = state.gwMap[el.value];
-        if (g) { state.edit.d.spot = ''; if (Array.isArray(g.zielfische) && g.zielfische[0]) state.edit.d.zielfisch = g.zielfische[0]; }
-      }
-      renderView();
-    }
+    const root = bindValue(el);
+    if (!root) return;
+    const b = el.dataset.b;
+    let rerender = !!el.dataset.rerender;
+    if (b === 'gw') applyGwDefaults(root);
+    if (b === 'setup') applySetupDefaults(root);
+    if (el.dataset.prefill && prefillKoeder(getPath(root, b.replace(/\.label$/, '')))) { toast('Angaben vom letzten Einsatz übernommen'); rerender = true; }
+    if (rerender) renderView();
     return;
   }
   if (el.id === 'f-open') { state.f.sOnlyOpen = el.checked; renderView(); }
-  else if (el.id === 'k-typ') state.form.koederNeuTyp = el.value;
   else if (el.id === 'set-gps') {
     state.settings.gps = el.checked;
     await saveSettings();
@@ -1635,20 +2211,14 @@ document.addEventListener('change', async e => {
   }
   else if (el.id === 'imp-file') { const t = await readFile(el); if (t != null) importData(t); }
   else if (el.id === 'restore-file') { const t = await readFile(el); if (t != null) prepareRestore(t); }
-  else if (el.form && el.form.id === 'startform' && el.name) {
-    const F = state.form;
-    F[el.name] = el.value;
-    if (el.name === 'gw') {
-      F.spot = '';
-      const g = state.gwMap[F.gw];
-      if (g && Array.isArray(g.zielfische) && g.zielfische[0]) F.ziel = g.zielfische[0];
-      if (g) F.art = /watend/i.test(String(g.angelart || '')) ? 'Watend' : 'Ufer';
-      renderView();
-    }
-  }
 });
 document.addEventListener('submit', e => { if (e.target.id === 'startform') { e.preventDefault(); startLive(); } });
-document.addEventListener('toggle', e => { if (e.target && e.target.id === 'livetips') state.tipsOpen = e.target.open; }, true);
+document.addEventListener('toggle', e => {
+  const t = e.target;
+  if (!t) return;
+  if (t.id === 'livetips') state.tipsOpen = t.open;
+  if (t.dataset && t.dataset.det) { if (t.open) state.openDet.add(t.dataset.det); else state.openDet.delete(t.dataset.det); }
+}, true);
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') { updateElapsed(); wakeOn(); renderNav(); }
 });
@@ -1661,7 +2231,9 @@ function setupSw() {
   if (!('serviceWorker' in navigator)) return;
   if (!(location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) return;
   let reloading = false;
-  navigator.serviceWorker.addEventListener('controllerchange', () => { if (reloading) return; reloading = true; location.reload(); });
+  const hadController = !!navigator.serviceWorker.controller;
+  // Nur nach einem Update neu laden, nicht beim allerersten Installieren.
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (reloading || !hadController) return; reloading = true; location.reload(); });
   navigator.serviceWorker.register('sw.js').then(reg => {
     const watch = w => {
       if (!w) return;
@@ -1682,14 +2254,16 @@ async function loadAll() {
   gs.forEach(addGwLocal);
   state.empfehlungen = es;
   const meta = Object.fromEntries(ms.map(m => [m.key, m.value]));
-  state.settings = Object.assign({ gps: false, sunPos: null }, meta.settings || {});
+  state.settings = Object.assign(defaultSettings(), meta.settings || {});
   state.pending = meta.pendingExport || null;
   state.lastBackup = meta.lastBackup || null;
+  state.form = emptyForm();
   const lives = state.sessions.filter(isLive).sort((a, b) => String(b.erstellt).localeCompare(String(a.erstellt)));
   if (lives[0]) resume(lives[0]);
   defaultForm();
 }
 async function init() {
+  state.form = emptyForm();
   const h = (location.hash || '').slice(1);
   state.view = VIEWS.includes(h) ? h : 'sessions';
   renderAll();
@@ -1698,6 +2272,7 @@ async function init() {
   catch (e) { state.failed = true; renderAll(); return; }
   if (state.live && state.view !== 'live') { state.view = 'live'; try { history.replaceState(null, '', '#live'); } catch (e) { /* egal */ } }
   renderAll();
+  gcBilder();
   try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* egal */ }
 }
 init();

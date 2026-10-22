@@ -1,7 +1,7 @@
 /* Service Worker der Fangbuch-App.
    Legt alle Dateien beim Installieren in den Cache und liefert sie danach von dort aus.
    Nach jeder Änderung an einer Datei VERSION hochzählen, sonst sieht das Handy die neue Fassung nicht. */
-const VERSION = 'fangbuch-app-v1';
+const VERSION = 'fangbuch-app-v2';
 const FILES = [
   './',
   './index.html',

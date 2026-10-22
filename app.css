@@ -228,6 +228,30 @@ dialog.sheet::backdrop{background:rgba(4,14,13,.55)}
 .filelabel{position:relative;overflow:hidden;display:inline-flex;align-items:center;justify-content:center}
 .filelabel input{position:absolute;inset:0;opacity:0;cursor:pointer;min-height:0}
 
+/* Köder, Montage, Spots und Screenshots */
+.grid2{align-items:end}
+details *,input,select,textarea,button{box-sizing:border-box}
+.gwsetup{display:grid;grid-template-columns:1fr;gap:0 12px;align-items:end}
+@media (min-width:480px){.gwsetup{grid-template-columns:1fr 1fr}}
+.formsec{margin:8px 0 6px;padding-top:14px;border-top:1px solid var(--line)}
+.formsec h3{font-size:1rem;font-stretch:112%;font-weight:700;margin:0 0 10px}
+details.sub{margin:2px 0 14px;border:1.5px solid var(--line);border-radius:12px;padding:0 14px;background:var(--bg)}
+details.sub>summary{min-height:48px;display:flex;flex-wrap:wrap;align-items:center;gap:2px 10px;font-weight:650;cursor:pointer;padding:8px 0}
+details.sub[open]{padding-bottom:6px}
+details.sub[open]>summary{margin-bottom:10px;border-bottom:1px solid var(--line)}
+.sumhint{font-weight:400}
+.live-block details.sub{background:var(--surface)}
+.evtools{margin:0 0 12px}
+.picrow{display:flex;align-items:center;gap:12px}
+.thumbbtn{appearance:none;padding:0;border:0;background:none;cursor:pointer;display:inline-block;margin-top:6px}
+.thumb{display:block;width:96px;height:72px;object-fit:cover;border-radius:8px;border:1.5px solid var(--line);background:var(--surface-2)}
+.bigimg{display:block;width:100%;height:auto;border-radius:10px;margin-top:14px}
+.settingblock{padding:12px 0;border-bottom:1px solid var(--line)}
+.settingblock p{margin:2px 0 0}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:10px 0}
+.chip{display:inline-flex;align-items:center;gap:4px;padding:2px 2px 2px 12px;border-radius:999px;border:1.5px solid var(--line);background:var(--surface);font-size:.92rem}
+.chip button{appearance:none;border:0;background:none;color:var(--ink-2);font:inherit;font-size:1.2rem;line-height:1;width:36px;height:36px;border-radius:50%;cursor:pointer}
+
 @media (max-width:640px){
   dialog.sheet{width:100vw;max-height:92vh;margin:auto 0 0;border-radius:16px 16px 0 0}
 }
