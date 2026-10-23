@@ -1,0 +1,58 @@
+// Fachwissen aus dem Design „Fangbuch App v3“: Grundwerte je Methode und Zielfisch, Farbfamilien,
+// Köderführung und Stil-Bausteine. Das ist Faustregel-Wissen, keine Messung; eigene Sessions verschieben die Werte.
+export const T=s=>{const[a,b]=s.split(':').map(Number);return a*60+b};
+export const HM=m=>{m=Math.round(m);return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0')};
+export const clamp=(v,a=5,b=96)=>Math.round(Math.max(a,Math.min(b,v)));
+export const WORD=v=>v>=80?'sehr gut':v>=65?'gut':v>=50?'mittel':v>=35?'mäßig':'schwach';
+export const METHODS=[{id:'faul',name:'Gummifisch am Jigkopf',tech:'Faulenzen'},{id:'drop',name:'Dropshot',tech:'Finesse am Grund'},{id:'texas',name:'Texas- oder Carolina-Rig',tech:'Hängerfrei schleifen'},{id:'wob',name:'Wobbler',tech:'Crankbait, einkurbeln'},{id:'jerk',name:'Jerkbait',tech:'Schlagen und Pause'},{id:'spin',name:'Spinner',tech:'Langsam einkurbeln'},{id:'blink',name:'Blinker',tech:'Weit werfen, flattern'},{id:'sbait',name:'Spinnerbait',tech:'Über Kraut führen'}];
+export const MN=Object.fromEntries(METHODS.map(m=>[m.id,m]));
+export const BASE={barsch:{faul:74,drop:70,texas:58,spin:52,wob:46,jerk:36,blink:32,sbait:24},hecht:{jerk:70,sbait:64,faul:62,wob:58,blink:48,spin:42,texas:28,drop:16},zander:{faul:70,drop:54,texas:46,wob:40,jerk:24,blink:20,spin:16,sbait:14},mefo:{blink:70,wob:58,spin:52,jerk:34,faul:30,drop:10,texas:10,sbait:8},bafo:{spin:70,wob:66,blink:40,jerk:30,faul:24,drop:18,texas:12,sbait:8}};
+export const FAM={nat:{name:'Natürlich und transparent',ex:'Ayu, Rotauge, Motoroil',sw:['#cfc8a6','#8c9a7a','#6b5a2a']},sig:{name:'Signalfarben',ex:'Chartreuse, Orange, Pink',sw:['#c8e03a','#f07a1e','#ef5a92']},dark:{name:'Dunkle Silhouette',ex:'Schwarz, Dunkelviolett',sw:['#1c1c22','#3b2552','#4a3a1a']},kon:{name:'Starker Kontrast',ex:'Firetiger, Schwarz und Chartreuse',sw:['#f07a1e','#1c1c22','#c8e03a']},perl:{name:'Weiß und Perlmutt',ex:'Weiß, Perl, Silberglitter',sw:['#f4f2e8','#d6dbde','#aebcc2']}};
+export const DET={
+ faul:{type:'Gummifisch, Paddeltail',size:{barsch:'7 cm',hecht:'16 cm',zander:'10 cm'},wt:{barsch:'7 g, bei Wind 10 g',hecht:'21 g',zander:'14 g, bei Strömung 21 g'},head:'Rundkopf, Haken 2/0',start:62,rh:[['crank',2,'2× kurbeln'],['sink',2,'absinken'],['crank',2,'2× kurbeln'],['sink',2,'absinken']],bite:1,biteNote:'Biss meist in der Absinkphase: ein Tock in der Rute oder die Schnur zuckt. Sofort anschlagen.',steps:['Auswerfen, Köder bis zum Grund sinken lassen. Schnur beobachten.','Zwei schnelle Kurbelumdrehungen, die Rute bleibt ruhig.','Köder an gespannter Schnur absinken lassen, 2 bis 3 Sekunden.','Schnur erschlafft: Grund erreicht. Sofort wiederholen.'],combo:{barsch:'cb2',hecht:'cb3',zander:'cb3',_:'cb2'},plus:['Im Herbst steht der Fisch grundnah: genau dort arbeitet der Köder','Bedeckter Himmel und Dämmerung verlängern die Beißzeit','Kanten und Strukturen am Grund lassen sich gezielt abfischen'],minus:['Fallender Luftdruck: Bisse oft vorsichtig']},
+ drop:{type:'No-Action-Shad oder Wurm',size:{barsch:'5 cm',zander:'8 cm'},wt:{_:'Blei 7 g, Abstand 40 cm'},head:'Dropshot-Haken Gr. 4, Nose-Hook',start:40,rh:[['shake',3,'schütteln'],['pause',2,'Pause'],['shake',3,'schütteln'],['pause',2,'Pause']],bite:1,biteNote:'Biss oft in der Pause. Kurz warten, dann mit Zug anschlagen.',steps:['Auswerfen, Blei liegt am Grund, Schnur straff.','Rutenspitze leicht schütteln, das Blei bleibt liegen.','Fünf Sekunden Pause, nur Spannung halten.','Einen halben Meter heranziehen und wiederholen.'],combo:{_:'cb1'},plus:['Langsame Präsentation passt zu trägen Fischen','Punktgenau an Kanten, Spundwänden und Steinen'],minus:['Sucht wenig Fläche ab: in 1 bis 2 Stunden nur zwei Spots']},
+ texas:{type:'Creature oder Wurm, Texas-Rig',size:{_:'8 cm'},wt:{_:'Bullet-Blei 5 g'},head:'Offset-Haken 1/0',start:62,rh:[['drag',3,'ziehen'],['pause',2,'liegen'],['hop',1,'lupfen'],['pause',2,'liegen']],bite:1,biteNote:'Biss oft beim Liegen. Die Schnur wandert seitlich weg.',steps:['Absinken lassen bis zum Grund.','Rute langsam von 9 auf 11 Uhr ziehen.','Schnur einholen, Köder liegt still.','Kurz anlupfen und über Hindernisse hüpfen lassen.'],combo:{_:'cb2'},plus:['Hängerfrei in Steinpackung und Kraut'],minus:['Langsam: kostet Zeit in einer kurzen Session']},
+ wob:{type:'Flachlaufender Crankbait',size:{barsch:'5 cm',hecht:'12 cm',_:'7 cm'},wt:{_:'6 g, läuft 1 bis 2 m'},head:'Drillinge Gr. 8',start:14,rh:[['dive',2,'abtauchen'],['steady',3,'einkurbeln'],['stop',1,'Stopp'],['steady',3,'einkurbeln']],bite:2,biteNote:'Biss oft direkt nach dem Stopp, wenn der Köder aufsteigt.',steps:['Auswerfen, drei schnelle Umdrehungen auf Tiefe.','Gleichmäßig einkurbeln, Grundkontakt suchen.','Bei Kontakt kurz stoppen und aufsteigen lassen.'],combo:{hecht:'cb4',_:'cb2'},plus:['Sucht schnell viel Fläche ab'],minus:['Bei kaltem Wasser oft zu schnell für träge Fische']},
+ jerk:{type:'Suspender-Jerkbait',size:{hecht:'12 cm',_:'8 cm'},wt:{_:'16 g, schwebend'},head:'Drillinge Gr. 4',start:36,rh:[['twitch',2,'2× schlagen'],['pause',2,'Pause'],['twitch',2,'2× schlagen'],['pause',2,'Pause']],bite:1,biteNote:'Biss meist in der Pause, wenn der Köder steht.',steps:['Auf Tiefe kurbeln.','Zwei kurze Schläge aus dem Handgelenk, Schnur locker.','Pause 2 bis 4 Sekunden, der Köder steht.','Wiederholen. Bei Kälte die Pause verlängern.'],combo:{_:'cb4'},missing:{hecht:'Dir fehlt ein Titanvorfach, 30 cm. Fluorocarbon 0,40 mm ist bei Hecht riskant.'},plus:['Klares Wasser: Hecht jagt auf Sicht','Krautkanten im Flachen'],minus:['Ermüdend mit kalten Händen']},
+ spin:{type:'Spinner',size:{_:'Gr. 2'},wt:{_:'5 g'},head:'Drilling mit Fransen',start:14,rh:[['sink',1,'sinken'],['steady',3,'langsam'],['flick',1,'Wechsel'],['steady',3,'langsam']],bite:2,biteNote:'Biss oft beim Richtungswechsel.',steps:['Auswerfen, 2 Sekunden absinken lassen.','Langsam einkurbeln, das Blatt muss drehen.','Rutenspitze kurz zur Seite: Richtungswechsel.'],combo:{_:'cb2'},plus:['Vibration hilft bei Trübung'],minus:['Klares, flaches Wasser bei hohem Angeldruck']},
+ blink:{type:'Blinker, schlank',size:{_:'7 cm'},wt:{_:'18 g'},head:'Drilling Gr. 6',start:14,rh:[['sink',2,'sinken'],['steady',3,'kurbeln'],['flutter',1,'flattern'],['steady',3,'kurbeln']],bite:2,biteNote:'Biss oft, wenn der Blinker nach dem Stopp flattert.',steps:['Weit auswerfen, zählend absinken lassen.','Mittelschnell einkurbeln.','Alle fünf Umdrehungen kurz stoppen und flattern lassen.'],combo:{mefo:'cb2',_:'cb3'},plus:['Große Wurfweite'],minus:['Wenig Kontrolle über die Tiefe']},
+ sbait:{type:'Spinnerbait',size:{_:'14 g'},wt:{_:'14 g'},head:'Einzelhaken mit Trailer',start:26,rh:[['steady',3,'kurbeln'],['flutter',2,'absacken'],['steady',3,'kurbeln']],bite:1,biteNote:'Biss oft, wenn die Blätter am Krautrand absacken.',steps:['Auswerfen und über das Kraut einkurbeln.','Am Krautrand absacken lassen, die Blätter flattern.','Weiter einkurbeln.'],combo:{_:'cb3'},plus:['Krautfelder und trübes Wasser'],minus:['Ohne Kraut oder Hindernisse wenig Vorteil']}
+};
+export const chip=(on,full?)=>({height:48,padding:'0 16px',borderRadius:24,border:on?'2px solid var(--ink)':'1px solid var(--line)',background:on?'var(--ink)':'var(--surface)',color:on?'var(--bg)':'var(--ink)',font:'600 15px Archivo, sans-serif',whiteSpace:'nowrap',flex:'none',cursor:'pointer',width:full?'100%':'auto'});
+export const optBtn=on=>({minHeight:52,padding:'6px 8px',borderRadius:14,border:on?'2px solid var(--reed)':'1px solid var(--line)',background:on?'var(--reed)':'var(--surface)',color:on?'var(--onreed)':'var(--ink)',font:'700 14px/1.2 Archivo, sans-serif',cursor:'pointer'});
+export const swStyle=(c,i,s=26)=>({width:s,height:s,borderRadius:'50%',background:c,border:'2px solid var(--surface)',marginLeft:i?-8:0,boxShadow:'0 0 0 1px var(--line)'});
+export function mark(type,x,big?){const s=big?16:12;const b={position:'absolute',top:'50%',left:x+'%',width:s,height:s,marginLeft:-s/2,marginTop:-s/2,borderRadius:'50%',boxSizing:'border-box'};
+ if(type==='c')return{...b,background:'var(--orange)',border:'2px solid var(--surface)'};
+ if(type==='f')return{...b,background:'var(--surface)',border:(big?3.5:3)+'px solid var(--ink)'};
+ if(type==='a')return{...b,background:'var(--surface)',border:(big?3.5:3)+'px solid var(--orange)'};
+ const n=big?9:7;return{...b,width:n,height:n,marginLeft:-n/2,marginTop:-n/2,background:'var(--surface)',border:'1.5px solid var(--ink)'};}
+export const dot=t=>{const s=mark(t,0,false);return{...s,position:'static',margin:0,flex:'none'};};
+export function rhythm(d){const W=320;const units=d.rh.reduce((a,r)=>a+r[1],0);const u=W/units;let x=0,y=d.start;const pts=[[x,y]];let bx=0,by=0;
+ d.rh.forEach((r,i)=>{const [k,n]=r;const x0=x;
+  if(k==='crank'){for(let j=0;j<n;j++){x+=u;y=Math.max(10,y-18);pts.push([x,y]);}}
+  else if(k==='sink'){x+=n*u;y=68;pts.push([x,y]);}
+  else if(k==='shake'){const steps=n*4;for(let j=0;j<steps;j++){x+=u/4;pts.push([x,y+(j%2?5:-5)]);}pts.push([x,y]);}
+  else if(k==='pause'||k==='steady'){x+=n*u;pts.push([x,y]);}
+  else if(k==='drag'){x+=n*u;y=Math.max(54,y-6);pts.push([x,y]);}
+  else if(k==='hop'){pts.push([x+u*.4,y-20]);x+=u;y=64;pts.push([x,y]);}
+  else if(k==='dive'){x+=n*u;y=40;pts.push([x-u*.6,36]);pts.push([x,y]);}
+  else if(k==='stop'){x+=u;y=y-10;pts.push([x,y]);}
+  else if(k==='twitch'){for(let j=0;j<n;j++){pts.push([x+u*.3,y-12]);pts.push([x+u*.6,y+8]);x+=u;pts.push([x,y]);}}
+  else if(k==='flick'){pts.push([x+u*.5,y-10]);x+=u;pts.push([x,y]);}
+  else if(k==='flutter'){const steps=n*4;for(let j=0;j<steps;j++){x+=u/4;y+=3.5;pts.push([x,y+(j%2?4:-4)]);}}
+  if(i===d.bite){bx=x0+(x-x0)*.65;let best=pts[0];pts.forEach(p=>{if(Math.abs(p[0]-bx)<Math.abs(best[0]-bx))best=p;});bx=best[0];by=best[1];}
+ });
+ return{pts:pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join(' '),bx,by,labels:d.rh.map((r,i)=>({t:r[2],style:{flex:r[1],font:'600 12px/1.2 Archivo, sans-serif',color:i===d.bite?'var(--orange)':'var(--hdrmuted)',textAlign:'center',borderTop:'2px solid '+(i===d.bite?'var(--orange)':'rgba(255,255,255,.15)'),paddingTop:6}}))};}
+export const pick=(o,f)=>o[f]??o._;
+export const SHORT={faul:'Faulenzen',drop:'Dropshot',texas:'T-/C-Rig',wob:'Wobbler',jerk:'Jerkbait',spin:'Spinner',blink:'Blinker',sbait:'Spinnerbait'};
+export const FSHORT={nat:'Natürlich',sig:'Signal',dark:'Dunkel',kon:'Kontrast',perl:'Perlmutt'};
+export const pd=s=>{const [y,m,d]=s.split('-').map(Number);return new Date(y,m-1,d);};
+export const days=(a,b)=>Math.round((b-a)/86400000);
+export const dnum=s=>{const [d,m]=s.split('.').map(Number);return m*100+d;};
+export const SYM={kante:['Kante','K','#1e3a32'],plateau:['Plateau','P','#3c5a4f'],loch:['Loch','L','#1f4f6a'],rinne:['Rinne','R','#2f6a8a'],kraut:['Kraut','Kr','#4d7a3a'],stein:['Steinpackung','St','#6b6458'],hind:['Hindernis','H','#c4561a']};
+export const famGuess=c=>/chartreuse|orange|pink|gelb/i.test(c)?'sig':/schwarz|violett|dunkel/i.test(c)?'dark':/weiß|perl|silber/i.test(c)?'perl':/tiger|kontrast/i.test(c)?'kon':/blei/i.test(c)?null:'nat';
+export const methodGuess=(t,m)=>{const s=(t+' '+m).toLowerCase();return /dropshot|no-action/.test(s)?'drop':/creature|texas|wurm/.test(s)?'texas':/wobbler|crank/.test(s)?'wob':/jerk/.test(s)?'jerk':/spinnerbait/.test(s)?'sbait':/spinner/.test(s)?'spin':/blinker/.test(s)?'blink':/gummi|shad|paddel/.test(s)?'faul':null;};
+export const OBS: [string,string[]][]=[['Beutefisch',['aktiv','vereinzelt','nichts zu sehen']],['Vögel',['Möwen über Wasser','Kormoran','Haubentaucher']],['Andere Angler',['keine','1 bis 2','3 und mehr']],['Sonstiges',['Raubaktivität','Wind dreht','Spot gewechselt','Wasser trüber']]];
+
+// Uhrzeit und Datum
+const WD=['So','Mo','Di','Mi','Do','Fr','Sa'];
