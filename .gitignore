@@ -1,3 +1,7 @@
+*.tmp
+*.tsbuildinfo
 .DS_Store
 Thumbs.db
-*.tmp
+dev-dist
+dist
+node_modules

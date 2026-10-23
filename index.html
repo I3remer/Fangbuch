@@ -1,44 +1,25 @@
 <!doctype html>
-<html lang="de">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Fangbuch</title>
-<meta name="description" content="Notizblock fürs Wasser: Sessions offline erfassen und ins Fangbuch übertragen.">
-<meta name="theme-color" content="#E8EEEA" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#0C1618" media="(prefers-color-scheme: dark)">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Fangbuch">
-<meta name="format-detection" content="telephone=no">
-<link rel="manifest" href="manifest.webmanifest">
-<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
-<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="preload" href="fonts/archivo-latin.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="app.css">
-</head>
-<body>
-<header class="masthead wrap">
-  <div class="mast-row">
-    <h1>Fangbuch</h1>
-    <button class="tab tab-live" data-view="live"><span class="dot" aria-hidden="true"></span>Live</button>
-  </div>
-  <p class="lede" id="lede">Wird geladen …</p>
-</header>
-<nav class="nav" aria-label="Bereiche">
-  <div class="wrap nav-inner">
-    <button class="tab" data-view="sessions">Sessions</button>
-    <button class="tab" data-view="gewaesser">Gewässer</button>
-    <button class="tab" data-view="uebertragen">Übertragen<span class="tab-count" id="tab-count"></span></button>
-    <button class="tab" data-view="daten">Daten</button>
-  </div>
-</nav>
-<div class="wrap" id="banner"></div>
-<main class="wrap" id="main"><p class="loading">Wird geladen …</p></main>
-<dialog class="sheet" id="sheet" aria-labelledby="sheet-title"><div id="sheet-inner"></div></dialog>
-<div class="toast" id="toast" role="status" aria-live="polite"></div>
-<noscript><p class="wrap">Die App braucht JavaScript.</p></noscript>
-<script src="app.js"></script>
-</body>
+<html lang="de" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f2f0e8" />
+    <meta name="description" content="Ratgeber und Gedächtnis am Wasser: Sessions offline erfassen und ins Fangbuch übertragen." />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="format-detection" content="telephone=no" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Fangbuch" />
+    <link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <title>Fangbuch</title>
+    <script>
+      // Dunkelmodus vor dem ersten Rendern setzen, damit nichts hell aufblitzt.
+      if (matchMedia('(prefers-color-scheme: dark)').matches) document.documentElement.dataset.theme = 'dark';
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./src/main.tsx"></script>
+  </body>
 </html>
